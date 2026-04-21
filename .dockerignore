@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log
+data
+*.csv
+*.png
+Screenshot*
+OmniSync-v4-roadmap.md
+DEPLOY.md
+
