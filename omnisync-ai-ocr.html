@@ -2824,7 +2824,7 @@
             currentDrawingType = plan.drawingType || ((plan.pdfDataUrl || '').startsWith('data:image/') ? 'image' : 'pdf');
             if (plan.pdfStored || plan.pdfDataUrl) {
                 try {
-                    currentPdfDataUrl = plan.pdfStored ? await loadPlanPdfAsset(plan.name) : plan.pdfDataUrl;
+                    currentPdfDataUrl = plan.pdfStored ? (await loadPlanPdfAsset(plan.name)) || plan.pdfDataUrl : plan.pdfDataUrl;
                     if (currentPdfDataUrl) {
                         if (!plan.drawingType) {
                             currentDrawingType = currentPdfDataUrl.startsWith('data:image/') ? 'image' : 'pdf';
@@ -4312,6 +4312,43 @@
             }).sort((a, b) => (a.centerY - b.centerY) || (a.bbox.x0 - b.bbox.x0));
         }
 
+        function mergeAlignedOcrLines(lines) {
+            const merged = [];
+
+            lines.forEach(line => {
+                const previous = merged[merged.length - 1];
+                if (!previous) {
+                    merged.push({ ...line });
+                    return;
+                }
+
+                const prevWidth = previous.bbox.x1 - previous.bbox.x0;
+                const lineWidth = line.bbox.x1 - line.bbox.x0;
+                const horizontalOverlap = Math.min(previous.bbox.x1, line.bbox.x1) - Math.max(previous.bbox.x0, line.bbox.x0);
+                const overlapRatio = horizontalOverlap / Math.max(1, Math.min(prevWidth, lineWidth));
+                const verticalGap = line.bbox.y0 - previous.bbox.y1;
+                const shortFragment = previous.text.length <= 8 || line.text.length <= 8;
+                const toleranceFragment = /(?:\+|-|\/|\u00B1|DIA|OD|ID|R|M\d|X45|ANGLE|DEPTH)/i.test(previous.text) || /(?:\+|-|\/|\u00B1|DIA|OD|ID|R|M\d|X45|ANGLE|DEPTH)/i.test(line.text);
+
+                if (overlapRatio > 0.35 && verticalGap >= -6 && verticalGap <= 28 && (shortFragment || toleranceFragment)) {
+                    previous.words = [...previous.words, ...line.words].sort((a, b) => (a.bbox.y0 - b.bbox.y0) || (a.bbox.x0 - b.bbox.x0));
+                    previous.text = normalizeOcrText(`${previous.text} ${line.text}`);
+                    previous.bbox = {
+                        x0: Math.min(previous.bbox.x0, line.bbox.x0),
+                        y0: Math.min(previous.bbox.y0, line.bbox.y0),
+                        x1: Math.max(previous.bbox.x1, line.bbox.x1),
+                        y1: Math.max(previous.bbox.y1, line.bbox.y1)
+                    };
+                    previous.centerX = (previous.bbox.x0 + previous.bbox.x1) / 2;
+                    previous.centerY = (previous.bbox.y0 + previous.bbox.y1) / 2;
+                } else {
+                    merged.push({ ...line });
+                }
+            });
+
+            return merged;
+        }
+
         function parseSingleToleranceFromText(text, sign) {
             const normalized = normalizeOcrText(text);
             const explicit = normalized.match(new RegExp(`\\${sign}\\s*(\\d*\\.?\\d+)`));
@@ -4634,7 +4671,7 @@
             const words = buildPdfTextWords(textContent.items || [], viewport).filter(word => isWordInsideSelection(word, selectionRect));
             if (!words.length) return [];
 
-            const lines = buildOcrLines(words).map(line => ({ ...line, source: 'pdf-text' }));
+            const lines = mergeAlignedOcrLines(buildOcrLines(words)).map(line => ({ ...line, source: 'pdf-text' }));
             const candidates = [];
             lines.forEach((line, index) => {
                 candidates.push(...collectExplicitDimensionMatches(line));
@@ -4651,7 +4688,8 @@
 
         async function extractDimensionCandidatesFromCanvas(canvas, selectionRect = null) {
             const sourceCanvas = selectionRect ? createCropCanvas(canvas, selectionRect) : canvas;
-            const result = await Tesseract.recognize(sourceCanvas, 'eng', {
+            const processedCanvas = enhanceCanvasForOCR(sourceCanvas);
+            const result = await Tesseract.recognize(processedCanvas, 'eng', {
                 logger: message => {
                     if (message.status === 'recognizing text') {
                         updateAIScanStatus(`Recognizing text ${Math.round((message.progress || 0) * 100)}%`);
@@ -4673,7 +4711,7 @@
                     centerY: (word.bbox.y0 + word.bbox.y1) / 2
                 }));
 
-            const lines = buildOcrLines(words);
+            const lines = mergeAlignedOcrLines(buildOcrLines(words));
             const candidates = [];
 
             lines.forEach((line, index) => {
@@ -5139,10 +5177,10 @@
             };
             
             try {
-                if (currentPdfDataUrl) {
+                if (currentPdfDataUrl && !cloudState.enabled) {
                     await savePlanPdfAsset(name, currentPdfDataUrl);
                     planData.pdfStored = true;
-                } else {
+                } else if (!currentPdfDataUrl) {
                     try {
                         await deletePlanPdfAsset(name);
                     } catch (error) {
