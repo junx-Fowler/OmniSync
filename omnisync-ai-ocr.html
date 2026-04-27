@@ -123,6 +123,15 @@
             </div>
         </div>
     </div>
+    <div id="scan-review-modal" class="fixed inset-0 z-50 bg-slate-900/60 hidden flex justify-center items-center backdrop-blur-sm transition-opacity">
+        <div class="bg-white w-[760px] max-h-[80vh] rounded-lg shadow-2xl overflow-hidden flex flex-col border border-slate-200">
+            <div class="bg-[#1C355E] p-4 flex justify-between items-center text-white">
+                <h3 class="font-black italic uppercase tracking-widest">AI Scan Review Queue</h3>
+                <button onclick="closeScanReviewQueue()" class="font-bold text-slate-200 hover:text-white transition-colors">&times; CLOSE</button>
+            </div>
+            <div id="scan-review-list" class="p-4 overflow-y-auto space-y-3"></div>
+        </div>
+    </div>
 
     <div id="source-trace-modal" class="fixed inset-0 z-50 bg-slate-900/60 hidden flex justify-center items-center backdrop-blur-sm">
         <div class="bg-white w-[560px] max-w-[94vw] rounded-lg shadow-2xl overflow-hidden border border-slate-300">
@@ -148,7 +157,7 @@
 
     <header class="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md z-30 relative border-b-2 border-blue-500">
         <div class="z-10 w-1/4">
-            <h1 class="text-xl font-bold italic">OmniSync <span class="bg-purple-600 text-[10px] px-2 py-0.5 rounded not-italic font-black">PRO</span><span class="text-[10px] text-blue-400 ml-2 not-italic tracking-widest font-black">REV 4.0</span></h1>
+            <h1 class="text-xl font-bold italic">OmniSync <span class="bg-purple-600 text-[10px] px-2 py-0.5 rounded not-italic font-black">PRO</span><span class="text-[10px] text-blue-400 ml-2 not-italic tracking-widest font-black">REV 5.1</span></h1>
         </div>
         <div class="absolute left-1/2 transform -translate-x-1/2 pointer-events-none">
             <img src="./Fowler-Logo.png" alt="Fowler" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');" class="h-10 object-contain drop-shadow-md">
@@ -162,9 +171,6 @@
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 10.43 3.1V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                     </svg>
                     SETTINGS
-                </button>
-                <button onclick="exitSystem()" id="btn-exit-system" class="flex flex-row items-center px-3 py-1.5 rounded-md text-sm font-bold text-red-200 hover:text-white bg-slate-800 border border-slate-700 transition-all whitespace-nowrap">
-                    EXIT
                 </button>
             <div class="bg-slate-800 p-1 rounded-lg flex space-x-1 border border-slate-700">
                 <button onclick="setMode('PLAN')" id="btn-mode-plan" class="flex flex-row items-center px-4 py-1.5 rounded-md text-sm font-bold text-slate-400 transition-all whitespace-nowrap">
@@ -209,6 +215,9 @@
                     QUALITY
                 </button>
             </div>
+            <button onclick="exitSystem()" id="btn-exit-system" class="ml-3 flex flex-row items-center px-3 py-1.5 rounded-md text-sm font-bold text-red-200 hover:text-white bg-slate-800 border border-slate-700 transition-all whitespace-nowrap">
+                EXIT
+            </button>
         </div>
     </header>
 
@@ -224,7 +233,7 @@
                 <div class="flex justify-between items-end mb-8 border-b-2 pb-4">
                     <div>
                         <h2 class="text-3xl font-black text-[#1C355E] uppercase italic">Settings</h2>
-                        <p class="text-slate-500 font-bold uppercase text-[10px] tracking-widest mt-2">System modules, inspectors, instruments, and reporting</p>
+                        <p class="text-slate-500 font-bold uppercase text-[10px] tracking-widest mt-2">Administration hub for people, policies, instruments, reports, and data connections</p>
                     </div>
                     <button onclick="closeSettingsPage()" class="bg-white border border-slate-400 text-slate-700 px-4 py-2 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-100 transition-colors">Close</button>
                 </div>
@@ -241,6 +250,49 @@
                             <button onclick="addSettingItem('inspectors')" class="bg-[#1C355E] text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest">Add Inspector</button>
                         </div>
                         <div id="inspector-settings-list" class="space-y-3"></div>
+                    </div>
+                    <div id="enterprise-policy-section" class="bg-white rounded shadow border p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 class="text-xl font-black text-[#1C355E] uppercase italic">Enterprise Policies</h3>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Alert thresholds, scan governance, and commercialization-grade defaults</p>
+                            </div>
+                            <button onclick="saveEnterprisePolicies()" class="bg-[#1C355E] text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest">Save Policies</button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+                            <div>
+                                <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Yield Alert %</label>
+                                <input id="policy-yield-threshold" type="number" min="1" max="100" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white outline-none focus:border-[#1C355E]">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">NCR Aging Days</label>
+                                <input id="policy-ncr-aging" type="number" min="1" max="365" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white outline-none focus:border-[#1C355E]">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Low Confidence</label>
+                                <input id="policy-low-confidence" type="number" min="0.2" max="0.95" step="0.01" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white outline-none focus:border-[#1C355E]">
+                            </div>
+                            <div>
+                                <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Auto Approve</label>
+                                <input id="policy-auto-approve" type="number" min="0.3" max="0.99" step="0.01" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white outline-none focus:border-[#1C355E]">
+                            </div>
+                            <div class="flex items-end">
+                                <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2 h-full">
+                                    <input id="policy-require-review" type="checkbox">
+                                    Require AI Scan Review
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded shadow border p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <h3 class="text-xl font-black text-[#1C355E] uppercase italic">Data Source Profiles</h3>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Reusable import templates for CMMs, scanners, CSV exports, and digital gages</p>
+                            </div>
+                            <button onclick="addDataSourceProfile()" class="bg-[#1C355E] text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest">Add Profile</button>
+                        </div>
+                        <div id="data-source-profile-list" class="space-y-3"></div>
                     </div>
                     <div id="user-management-section" class="bg-white rounded shadow border p-6 hidden">
                         <div class="flex justify-between items-center mb-4">
@@ -270,7 +322,7 @@
                 <div class="flex justify-between items-end mb-8 border-b-2 pb-4">
                     <div>
                         <h2 class="text-3xl font-black text-[#1C355E] uppercase italic">Quality Workflow</h2>
-                        <p class="text-slate-500 font-bold uppercase text-[10px] tracking-widest mt-2">First article packages, non-conformance records, and corrective action tracking</p>
+                        <p class="text-slate-500 font-bold uppercase text-[10px] tracking-widest mt-2">Enterprise analytics, quality alerts, first article workflows, NCR/CAPA, and audit traceability</p>
                     </div>
                     <div class="flex items-center gap-2">
                         <button onclick="createFaiPackage()" class="bg-[#1C355E] text-white px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest">New FAI Package</button>
@@ -568,6 +620,7 @@
                 <button id="ai-scan-btn" onclick="startAIScanSelection()" class="hidden bg-purple-600 text-white px-3 py-1.5 rounded-sm text-xs font-bold uppercase shadow hover:bg-purple-700 flex items-center transition-colors" title="Select an area to auto-extract dimensions">
                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> AI Scan
                 </button>
+                <button id="scan-review-btn" onclick="openScanReviewQueue()" class="hidden bg-amber-600 text-white px-3 py-1.5 rounded-sm text-xs font-bold uppercase shadow hover:bg-amber-700 transition-colors">Review Queue (<span id="scan-review-count">0</span>)</button>
                 <button onclick="savePlan()" class="bg-[#1C355E] text-white px-4 py-1.5 rounded-sm text-xs font-bold shadow uppercase tracking-widest hover:bg-slate-800 transition-colors">Save</button>
             </div>
             
@@ -694,6 +747,15 @@
             operation: '',
             machine: ''
         };
+        const defaultEnterprisePolicies = {
+            yieldAlertThreshold: 90,
+            ncrAgingDays: 14
+        };
+        const defaultDataSourceProfiles = [
+            { id: 'profile-generic-csv', name: 'Generic Characteristic CSV', provider: 'Generic', format: 'CSV', parseMode: 'column-based', featureMatch: 'ID + Name', active: true, notes: 'Use for one-row-per-part exports with feature columns.' },
+            { id: 'profile-aberlink-rows', name: 'Aberlink Feature Rows', provider: 'Aberlink', format: 'CSV', parseMode: 'row-based', featureMatch: 'ID + Name', active: true, notes: 'Use for exports where each feature is one row and measured value is in column 7.' },
+            { id: 'profile-scan-batch', name: 'SCAN Batch Import', provider: 'Sylvac SCAN', format: 'CSV', parseMode: 'column-based', featureMatch: 'Name', active: true, notes: 'Use for batch files exported from optical or scanner workflows.' }
+        ];
 
         let mode = 'PLAN', userRole = 'supervisor', features = [], pdfDoc = null, currentPdfDataUrl = null, currentDrawingType = '', currentPlanName = "", currentPartPhotoUrl = null;
         let trendChart = null, activeTrendId = null, viewingPart = null, simInterval = null, nextFeatureId = 1;
@@ -709,6 +771,9 @@
         let instrumentsOpen = false;
         let reportBuilderOpen = false;
         let managedUsers = [];
+        let currentPermissions = new Set();
+        let scanPolicy = { lowConfidenceThreshold: 0.62, autoApproveThreshold: 0.85, requireReview: true };
+        let scanReviewQueue = [];
         function normalizeUserRole(role) {
             const normalized = (role || '').toString().trim().toLowerCase();
             if (normalized === 'operator') return 'operator';
@@ -726,9 +791,13 @@
 
         function canAccessMode(modeName, role = userRole) {
             const normalized = normalizeUserRole(role);
-            if (normalized === 'operator') return modeName === 'EXECUTE';
-            if (normalized === 'planner') return modeName === 'PLAN';
-            return ['PLAN', 'EXECUTE', 'SUPERVISOR', 'QUALITY'].includes(modeName);
+            if (normalized === 'operator' && modeName !== 'EXECUTE') return false;
+            if (normalized === 'planner' && modeName !== 'PLAN') return false;
+            if (modeName === 'PLAN') return hasPermission('PLAN_VIEW');
+            if (modeName === 'EXECUTE') return hasPermission('EXECUTE_RUN');
+            if (modeName === 'SUPERVISOR') return hasPermission('SUPERVISOR_VIEW');
+            if (modeName === 'QUALITY') return hasPermission('QUALITY_VIEW');
+            return false;
         }
 
         function canAccessAdminModules(role = userRole) {
@@ -740,12 +809,19 @@
             return canAccessAdminModules(role);
         }
 
+        function hasPermission(permission) {
+            if (!permission) return true;
+            if (currentPermissions.size === 0) return true;
+            return currentPermissions.has(permission);
+        }
+
         let currentPlanMetadata = { ...defaultPlanMetadata };
         let planDirty = false;
         let lastPlanSavedAt = null;
         let editingRecordId = null;
         let floatingChartWindow = null;
-        let selectedQualityTab = 'fai';
+        let selectedQualityTab = 'overview';
+        let recentAuditEvents = [];
         const CLOUD_TOKEN_KEY = 'omnisync_cloud_token';
         let cloudState = {
             enabled: false,
@@ -840,12 +916,49 @@
             };
         }
 
+        function flushCloudOpsSoon() {
+            if (!cloudState.enabled || cloudState.syncSuppressed) return;
+            if (cloudState.flushTimer) clearTimeout(cloudState.flushTimer);
+            cloudState.flushTimer = setTimeout(async () => {
+                const ops = [...cloudState.pendingOps];
+                if (!ops.length) return;
+                cloudState.pendingOps = [];
+                cloudState.flushTimer = null;
+                try {
+                    await cloudApi('/api/storage/sync', {
+                        method: 'POST',
+                        body: JSON.stringify({ ops })
+                    });
+                } catch (error) {
+                    console.error('Cloud sync flush failed', error);
+                    cloudState.pendingOps = ops.concat(cloudState.pendingOps);
+                }
+            }, 150);
+        }
+
         async function hydrateCloudSnapshot() {
             cloudState.syncSuppressed = true;
             try {
                 const response = await cloudApi('/api/storage/snapshot');
                 const payload = await response.json();
                 const snapshot = payload?.kv || {};
+                const localKeys = Object.keys(localStorage).filter(isCloudSyncKey);
+                const localState = {};
+                localKeys.forEach(key => {
+                    localState[key] = localStorage.getItem(key);
+                });
+                const snapshotKeys = Object.keys(snapshot);
+                const hasLocalState = localKeys.length > 0;
+                const hasCloudState = snapshotKeys.length > 0;
+                if (!hasCloudState && hasLocalState) {
+                    cloudState.pendingOps.push(...localKeys.map(key => ({
+                        type: 'set',
+                        key,
+                        value: localState[key]
+                    })));
+                    flushCloudOpsSoon();
+                    return;
+                }
                 Object.keys(localStorage).filter(isCloudSyncKey).forEach(key => localStorage.removeItem(key));
                 Object.entries(snapshot).forEach(([key, value]) => {
                     if (isCloudSyncKey(key)) localStorage.setItem(key, value);
@@ -866,6 +979,8 @@
                 cloudState.enabled = true;
                 cloudState.user = payload.user;
                 userRole = normalizeUserRole(payload.user?.role);
+                await loadPermissions();
+                await loadScanPolicy();
                 await hydrateCloudSnapshot();
                 applyRoleAccess();
                 return true;
@@ -875,6 +990,154 @@
                 sessionStorage.removeItem(CLOUD_TOKEN_KEY);
                 return false;
             }
+        }
+
+        async function loadPermissions() {
+            try {
+                const response = await cloudApi('/api/permissions/me');
+                const payload = await response.json().catch(() => ({}));
+                currentPermissions = new Set(Array.isArray(payload.permissions) ? payload.permissions : []);
+            } catch (error) {
+                console.warn('Permissions fetch failed', error);
+                currentPermissions = new Set();
+            }
+        }
+
+        async function loadScanPolicy() {
+            try {
+                if (!hasPermission('PLAN_VIEW')) return;
+                const response = await cloudApi('/api/scan/policy');
+                const payload = await response.json().catch(() => ({}));
+                const policy = payload?.policy || {};
+                scanPolicy = {
+                    lowConfidenceThreshold: Number.isFinite(policy.lowConfidenceThreshold) ? policy.lowConfidenceThreshold : 0.62,
+                    autoApproveThreshold: Number.isFinite(policy.autoApproveThreshold) ? policy.autoApproveThreshold : 0.85,
+                    requireReview: policy.requireReview !== false
+                };
+            } catch (error) {
+                console.warn('Scan policy fetch failed', error);
+            }
+        }
+
+        function getEnterprisePolicies() {
+            try {
+                const saved = JSON.parse(localStorage.getItem('omnisync_enterprise_policies') || '{}');
+                return {
+                    yieldAlertThreshold: Number.isFinite(Number(saved?.yieldAlertThreshold)) ? Math.max(1, Math.min(100, Number(saved.yieldAlertThreshold))) : defaultEnterprisePolicies.yieldAlertThreshold,
+                    ncrAgingDays: Number.isFinite(Number(saved?.ncrAgingDays)) ? Math.max(1, Math.min(365, Number(saved.ncrAgingDays))) : defaultEnterprisePolicies.ncrAgingDays
+                };
+            } catch (error) {
+                return { ...defaultEnterprisePolicies };
+            }
+        }
+
+        function saveEnterprisePolicyState(policies) {
+            localStorage.setItem('omnisync_enterprise_policies', JSON.stringify({
+                yieldAlertThreshold: Number.isFinite(Number(policies?.yieldAlertThreshold)) ? Number(policies.yieldAlertThreshold) : defaultEnterprisePolicies.yieldAlertThreshold,
+                ncrAgingDays: Number.isFinite(Number(policies?.ncrAgingDays)) ? Number(policies.ncrAgingDays) : defaultEnterprisePolicies.ncrAgingDays
+            }));
+        }
+
+        function normalizeDataSourceProfiles(list) {
+            const source = Array.isArray(list) ? list : [];
+            return source
+                .map((item, index) => {
+                    const name = (item?.name || '').toString().trim();
+                    if (!name) return null;
+                    return {
+                        id: (item?.id || `profile-${Date.now()}-${index}`).toString(),
+                        name,
+                        provider: (item?.provider || 'Generic').toString().trim(),
+                        format: (item?.format || 'CSV').toString().trim().toUpperCase(),
+                        parseMode: item?.parseMode === 'row-based' ? 'row-based' : 'column-based',
+                        featureMatch: (item?.featureMatch || 'ID + Name').toString().trim(),
+                        active: item?.active !== false,
+                        notes: (item?.notes || '').toString()
+                    };
+                })
+                .filter(Boolean);
+        }
+
+        function getDataSourceProfiles() {
+            return localStorage.getItem('omnisync_data_source_profiles') === null
+                ? normalizeDataSourceProfiles(defaultDataSourceProfiles)
+                : normalizeDataSourceProfiles(JSON.parse(localStorage.getItem('omnisync_data_source_profiles') || '[]'));
+        }
+
+        function saveDataSourceProfiles(list) {
+            localStorage.setItem('omnisync_data_source_profiles', JSON.stringify(normalizeDataSourceProfiles(list)));
+        }
+
+        function getAcknowledgedAlerts() {
+            try {
+                return JSON.parse(localStorage.getItem('omnisync_alert_ack') || '{}');
+            } catch (error) {
+                return {};
+            }
+        }
+
+        function acknowledgeAlert(alertId) {
+            const ack = getAcknowledgedAlerts();
+            ack[alertId] = new Date().toISOString();
+            localStorage.setItem('omnisync_alert_ack', JSON.stringify(ack));
+            if (mode === 'QUALITY') renderQualityPage();
+        }
+
+        async function recordAuditEvent(action, entityType, entityId, details = {}) {
+            if (!cloudState.enabled || !cloudState.token) return;
+            try {
+                await cloudApi('/api/audit', {
+                    method: 'POST',
+                    body: JSON.stringify({ action, entityType, entityId, details })
+                });
+            } catch (error) {
+                console.warn('Audit event failed', error);
+            }
+        }
+
+        async function loadAuditTrail(limit = 120) {
+            if (!cloudState.enabled || !hasPermission('SUPERVISOR_VIEW')) {
+                recentAuditEvents = [];
+                return recentAuditEvents;
+            }
+            try {
+                const response = await cloudApi(`/api/audit?limit=${limit}`);
+                const payload = await response.json().catch(() => ({}));
+                recentAuditEvents = Array.isArray(payload.events) ? payload.events : [];
+            } catch (error) {
+                console.warn('Audit trail fetch failed', error);
+                recentAuditEvents = [];
+            }
+            return recentAuditEvents;
+        }
+
+        async function saveEnterprisePolicies() {
+            const policies = {
+                yieldAlertThreshold: Number(document.getElementById('policy-yield-threshold')?.value || defaultEnterprisePolicies.yieldAlertThreshold),
+                ncrAgingDays: Number(document.getElementById('policy-ncr-aging')?.value || defaultEnterprisePolicies.ncrAgingDays)
+            };
+            saveEnterprisePolicyState(policies);
+            scanPolicy = {
+                lowConfidenceThreshold: Number(document.getElementById('policy-low-confidence')?.value || scanPolicy.lowConfidenceThreshold),
+                autoApproveThreshold: Number(document.getElementById('policy-auto-approve')?.value || scanPolicy.autoApproveThreshold),
+                requireReview: !!document.getElementById('policy-require-review')?.checked
+            };
+            try {
+                if (cloudState.enabled && hasPermission('PLAN_EDIT')) {
+                    await cloudApi('/api/scan/policy', {
+                        method: 'POST',
+                        body: JSON.stringify(scanPolicy)
+                    });
+                }
+                await recordAuditEvent('ENTERPRISE_POLICY_UPDATE', 'policy', 'enterprise', {
+                    policies,
+                    scanPolicy
+                });
+                alert('Enterprise policies saved.');
+            } catch (error) {
+                alert(error.message || 'Could not save policies');
+            }
+            renderSettingsPage();
         }
 
         function hideLoginOverlayImmediately() {
@@ -1416,6 +1679,7 @@
             const toolsUsed = [...new Set(measurements.map(measurement => measurement.toolUsed || '').filter(Boolean))];
             const inspector = escapeHtml(viewingPart.inspector || viewingPart.operator || 'Unassigned');
             const note = escapeHtml(viewingPart.note || '');
+            const sourceProfile = escapeHtml(viewingPart.sourceProfile || '');
             const context = { ...defaultExecutionContext, ...(viewingPart.context || {}) };
             const contextBits = [context.lot && `Lot ${context.lot}`, context.batch && `Batch ${context.batch}`, context.workOrder && `WO ${context.workOrder}`, context.operation, context.machine].filter(Boolean);
             const statusClass = viewingPart.status === 'PASS'
@@ -1432,6 +1696,7 @@
                         <h3 class="text-xl font-black italic text-[#1C355E] mt-1">#${viewingPart.id.toString().slice(-4)} • ${escapeHtml(viewingPart.time || '')}</h3>
                         <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${inspector}</p>
                         ${contextBits.length ? `<p class="text-[9px] font-bold uppercase tracking-widest text-slate-400 mt-1">${escapeHtml(contextBits.join(' | '))}</p>` : ''}
+                        ${sourceProfile ? `<p class="text-[9px] font-bold uppercase tracking-widest text-blue-500 mt-1">Imported via ${sourceProfile}</p>` : ''}
                     </div>
                     <span class="text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-widest border ${statusClass}">${escapeHtml(viewingPart.status || 'N/A')}</span>
                 </div>
@@ -1769,6 +2034,145 @@
             return history.length ? history[history.length - 1] : null;
         }
 
+        function getAllPlans() {
+            try {
+                return JSON.parse(localStorage.getItem('omnisync_plans') || '[]');
+            } catch (error) {
+                return [];
+            }
+        }
+
+        function getPlanHistory(planName) {
+            try {
+                return JSON.parse(localStorage.getItem(`omnisync_data_${planName}`) || '[]');
+            } catch (error) {
+                return [];
+            }
+        }
+
+        function getAllQualityRecords(type) {
+            return getAllPlans().flatMap(plan => getQualityRecords(type, plan.name).map(record => ({ ...record, planName: plan.name, metadata: normalizePlanMetadata(plan.metadata) })));
+        }
+
+        function getEnterpriseQualitySummary() {
+            const plans = getAllPlans();
+            const releasedPlans = plans.filter(plan => normalizePlanMetadata(plan.metadata).status === 'Released');
+            const records = releasedPlans.flatMap(plan => getPlanHistory(plan.name).map(record => ({ ...record, planName: plan.name, metadata: normalizePlanMetadata(plan.metadata) })));
+            const totalRuns = records.length;
+            const passedRuns = records.filter(record => record.status === 'PASS').length;
+            const failedRuns = records.filter(record => record.status === 'FAIL').length;
+            const incompleteRuns = records.filter(record => record.status === 'INCOMPLETE').length;
+            const yieldPercent = totalRuns ? (passedRuns / totalRuns) * 100 : 0;
+            const featureFailures = {};
+            const planStats = {};
+            records.forEach(record => {
+                planStats[record.planName] = planStats[record.planName] || { total: 0, fail: 0, incomplete: 0, metadata: record.metadata };
+                planStats[record.planName].total += 1;
+                if (record.status === 'FAIL') planStats[record.planName].fail += 1;
+                if (record.status === 'INCOMPLETE') planStats[record.planName].incomplete += 1;
+                (record.measurements || []).forEach(measurement => {
+                    const key = `${record.planName}::${measurement.id}`;
+                    featureFailures[key] = featureFailures[key] || {
+                        planName: record.planName,
+                        featureId: measurement.id,
+                        featureName: measurement.name || `Feature ${measurement.id}`,
+                        type: measurement.type || 'Linear',
+                        fail: 0,
+                        total: 0
+                    };
+                    featureFailures[key].total += 1;
+                    if (measurement.status === 'FAIL') featureFailures[key].fail += 1;
+                });
+            });
+            const topFailingFeatures = Object.values(featureFailures)
+                .filter(item => item.fail > 0)
+                .sort((a, b) => b.fail - a.fail || b.total - a.total)
+                .slice(0, 8);
+            const planHealth = Object.entries(planStats)
+                .map(([planName, stats]) => ({
+                    planName,
+                    metadata: stats.metadata,
+                    total: stats.total,
+                    fail: stats.fail,
+                    incomplete: stats.incomplete,
+                    yieldPercent: stats.total ? ((stats.total - stats.fail - stats.incomplete) / stats.total) * 100 : 0
+                }))
+                .sort((a, b) => a.yieldPercent - b.yieldPercent || b.total - a.total);
+            return {
+                releasedPlans: releasedPlans.length,
+                totalRuns,
+                passedRuns,
+                failedRuns,
+                incompleteRuns,
+                yieldPercent,
+                topFailingFeatures,
+                planHealth
+            };
+        }
+
+        function getQualityAlertItems() {
+            const policies = getEnterprisePolicies();
+            const acknowledged = getAcknowledgedAlerts();
+            const alerts = [];
+            const summary = getEnterpriseQualitySummary();
+            if (summary.totalRuns && summary.yieldPercent < policies.yieldAlertThreshold) {
+                alerts.push({
+                    id: `yield-global-${policies.yieldAlertThreshold}`,
+                    severity: 'Critical',
+                    category: 'Yield',
+                    title: 'Enterprise yield is below target',
+                    detail: `${summary.yieldPercent.toFixed(1)}% yield across released plans is below the ${policies.yieldAlertThreshold}% alert threshold.`,
+                    action: 'Review failing plans and feature pareto in Quality Overview.',
+                    acknowledged: !!acknowledged[`yield-global-${policies.yieldAlertThreshold}`]
+                });
+            }
+            summary.planHealth
+                .filter(item => item.total >= 3 && item.yieldPercent < policies.yieldAlertThreshold)
+                .slice(0, 6)
+                .forEach(item => {
+                    alerts.push({
+                        id: `plan-yield-${item.planName}`,
+                        severity: item.yieldPercent < Math.max(50, policies.yieldAlertThreshold - 10) ? 'Critical' : 'High',
+                        category: 'Plan',
+                        title: `${getPlanDisplayName(item.planName, item.metadata)} is drifting low`,
+                        detail: `${item.total} runs recorded with ${item.yieldPercent.toFixed(1)}% yield.`,
+                        action: 'Open Supervisor mode for this plan and review trend clusters by feature, inspector, and tool.',
+                        acknowledged: !!acknowledged[`plan-yield-${item.planName}`]
+                    });
+                });
+            const ncrs = getAllQualityRecords('ncr');
+            const today = Date.now();
+            ncrs.filter(item => item.status !== 'Closed').forEach(item => {
+                const ageMs = item.dueDate ? (today - new Date(item.dueDate).getTime()) : 0;
+                if (item.dueDate && Number.isFinite(ageMs) && ageMs > policies.ncrAgingDays * 24 * 60 * 60 * 1000) {
+                    alerts.push({
+                        id: `ncr-overdue-${item.id}`,
+                        severity: 'High',
+                        category: 'NCR',
+                        title: `${item.number || 'NCR'} is overdue`,
+                        detail: `${item.featureName || 'Quality issue'} on ${getPlanDisplayName(item.planName, item.metadata)} is past its due date.`,
+                        action: 'Update owner, disposition, and corrective action in the Quality NCR/CAPA tab.',
+                        acknowledged: !!acknowledged[`ncr-overdue-${item.id}`]
+                    });
+                }
+            });
+            getCalibrationAlerts().forEach(item => {
+                alerts.push({
+                    id: `calibration-${item.kind}-${item.name}`,
+                    severity: item.status.state === 'OVERDUE' ? 'Critical' : 'Medium',
+                    category: 'Calibration',
+                    title: `${item.name} requires calibration attention`,
+                    detail: `${item.kind} ${item.name} is ${item.status.label.toLowerCase()}.`,
+                    action: 'Update calibration records or remove the asset from active use.',
+                    acknowledged: !!acknowledged[`calibration-${item.kind}-${item.name}`]
+                });
+            });
+            return alerts.sort((a, b) => {
+                const rank = { Critical: 0, High: 1, Medium: 2, Low: 3 };
+                return (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9);
+            });
+        }
+
         function createFaiPackage() {
             if (!currentPlanName) return alert('Select a released plan first.');
             const packages = getQualityRecords('fai');
@@ -1784,29 +2188,49 @@
                 featureCount: features.length,
                 latestRunId: latestRun?.id || null,
                 approval: 'Pending',
+                approvedBy: '',
+                approvedAt: '',
                 createdAt: new Date().toLocaleString(),
                 notes: ''
             });
             saveQualityRecords('fai', packages);
             selectedQualityTab = 'fai';
+            recordAuditEvent('FAI_CREATE', 'fai', currentPlanName, { packageNo: packages[0].packageNo, revision: currentPlanMetadata.revision || '' });
             renderQualityPage();
         }
 
         function updateFaiPackage(id, field, value) {
             const packages = getQualityRecords('fai').map(item => item.id === id ? { ...item, [field]: value } : item);
             saveQualityRecords('fai', packages);
+            recordAuditEvent('FAI_UPDATE', 'fai', `${currentPlanName}:${id}`, { field, value });
             renderQualityPage();
         }
 
         function toggleFaiForm(id, formKey, checked) {
             const packages = getQualityRecords('fai').map(item => item.id === id ? { ...item, forms: { ...(item.forms || {}), [formKey]: checked } } : item);
             saveQualityRecords('fai', packages);
+            recordAuditEvent('FAI_FORM_TOGGLE', 'fai', `${currentPlanName}:${id}`, { formKey, checked });
+            renderQualityPage();
+        }
+
+        function signFaiPackage(id) {
+            const signer = cloudState.user?.displayName || cloudState.user?.email || 'Supervisor';
+            const packages = getQualityRecords('fai').map(item => item.id === id ? {
+                ...item,
+                status: 'Released',
+                approval: 'Signed',
+                approvedBy: signer,
+                approvedAt: new Date().toLocaleString()
+            } : item);
+            saveQualityRecords('fai', packages);
+            recordAuditEvent('FAI_SIGN', 'fai', `${currentPlanName}:${id}`, { approvedBy: signer });
             renderQualityPage();
         }
 
         function deleteFaiPackage(id) {
             if (!confirm('Delete this FAI package?')) return;
             saveQualityRecords('fai', getQualityRecords('fai').filter(item => item.id !== id));
+            recordAuditEvent('FAI_DELETE', 'fai', `${currentPlanName}:${id}`);
             renderQualityPage();
         }
 
@@ -1831,6 +2255,7 @@
             });
             saveQualityRecords('ncr', records);
             selectedQualityTab = 'ncr';
+            recordAuditEvent('NCR_CREATE', 'ncr', currentPlanName, { number: records[0].number, featureId: records[0].featureId });
             renderQualityPage();
         }
 
@@ -1844,12 +2269,14 @@
                 return { ...item, [field]: value };
             });
             saveQualityRecords('ncr', records);
+            recordAuditEvent('NCR_UPDATE', 'ncr', `${currentPlanName}:${id}`, { field, value });
             renderQualityPage();
         }
 
         function deleteNcrRecord(id) {
             if (!confirm('Delete this NCR/CAPA record?')) return;
             saveQualityRecords('ncr', getQualityRecords('ncr').filter(item => item.id !== id));
+            recordAuditEvent('NCR_DELETE', 'ncr', `${currentPlanName}:${id}`);
             renderQualityPage();
         }
 
@@ -1940,6 +2367,182 @@
             `;
         }
 
+        async function renderQualityPage() {
+            const content = document.getElementById('quality-content');
+            if (!content) return;
+            if (selectedQualityTab === 'audit' && cloudState.enabled && !recentAuditEvents.length) {
+                await loadAuditTrail();
+            }
+
+            const summary = getEnterpriseQualitySummary();
+            const alerts = getQualityAlertItems();
+            const faiPackages = currentPlanName ? getQualityRecords('fai') : [];
+            const ncrRecords = currentPlanName ? getQualityRecords('ncr') : [];
+            const latestRun = currentPlanName ? getLatestMeasurementRecord() : null;
+            const failCount = latestRun?.measurements?.filter(item => item.status === 'FAIL').length || 0;
+            const openNcrCount = ncrRecords.filter(item => item.status !== 'Closed').length;
+            const summaryCards = `
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                    <div class="bg-white rounded shadow border-l-4 border-blue-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Context</div><div class="text-2xl font-black text-[#1C355E] mt-2">${currentPlanName ? escapeHtml(getPlanDisplayName()) : 'Enterprise'}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-emerald-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Released Plans</div><div class="text-2xl font-black text-[#1C355E] mt-2">${summary.releasedPlans}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-red-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Open NCRs</div><div class="text-2xl font-black text-[#1C355E] mt-2">${currentPlanName ? openNcrCount : getAllQualityRecords('ncr').filter(item => item.status !== 'Closed').length}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-purple-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Enterprise Yield</div><div class="text-2xl font-black text-[#1C355E] mt-2">${summary.yieldPercent.toFixed(1)}%</div></div>
+                </div>
+            `;
+            const tabsMarkup = `
+                <div class="bg-white rounded shadow border p-2">
+                    <div class="flex gap-2 flex-wrap">
+                        <button onclick="selectedQualityTab='overview'; renderQualityPage();" class="px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest ${selectedQualityTab === 'overview' ? 'bg-[#1C355E] text-white' : 'bg-white border border-slate-300 text-slate-700'}">Overview</button>
+                        <button onclick="selectedQualityTab='alerts'; renderQualityPage();" class="px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest ${selectedQualityTab === 'alerts' ? 'bg-amber-500 text-white' : 'bg-white border border-slate-300 text-slate-700'}">Alerts</button>
+                        <button onclick="selectedQualityTab='fai'; renderQualityPage();" class="px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest ${selectedQualityTab === 'fai' ? 'bg-[#1C355E] text-white' : 'bg-white border border-slate-300 text-slate-700'}">FAI / AS9102</button>
+                        <button onclick="selectedQualityTab='ncr'; renderQualityPage();" class="px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest ${selectedQualityTab === 'ncr' ? 'bg-red-600 text-white' : 'bg-white border border-slate-300 text-slate-700'}">NCR / CAPA</button>
+                        <button onclick="selectedQualityTab='audit'; renderQualityPage();" class="px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest ${selectedQualityTab === 'audit' ? 'bg-slate-800 text-white' : 'bg-white border border-slate-300 text-slate-700'}">Audit Trail</button>
+                    </div>
+                </div>
+            `;
+            const faiMarkup = faiPackages.length ? faiPackages.map(item => `
+                <div class="bg-white rounded shadow border p-5">
+                    <div class="flex justify-between items-start gap-4">
+                        <div>
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.packageNo)} | ${escapeHtml(item.createdAt)}</div>
+                            <h4 class="text-xl font-black text-[#1C355E] uppercase italic mt-2">${escapeHtml(item.title || item.partNumber || 'FAI Package')}</h4>
+                            <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Part ${escapeHtml(item.partNumber || currentPlanName)} ${item.revision ? `| Rev ${escapeHtml(item.revision)}` : ''}</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <select onchange="updateFaiPackage(${item.id}, 'status', this.value)" class="border border-slate-300 rounded px-3 py-2 text-[11px] font-bold text-[#1C355E] bg-white">
+                                ${['Draft', 'In Review', 'Approved', 'Released'].map(status => `<option value="${status}" ${item.status === status ? 'selected' : ''}>${status}</option>`).join('')}
+                            </select>
+                            <button onclick="signFaiPackage(${item.id})" class="bg-emerald-600 text-white px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Sign Release</button>
+                            <button onclick="deleteFaiPackage(${item.id})" class="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Delete</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 mt-4">
+                        <div class="bg-slate-50 border border-slate-200 rounded p-3"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Feature Count</div><div class="text-2xl font-black text-[#1C355E] mt-2">${item.featureCount || features.length}</div></div>
+                        <div class="bg-slate-50 border border-slate-200 rounded p-3"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Latest Run</div><div class="text-lg font-black text-[#1C355E] mt-2">${item.latestRunId ? `#${String(item.latestRunId).slice(-4)}` : 'None'}</div></div>
+                        <div class="bg-slate-50 border border-slate-200 rounded p-3"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Approval</div><input type="text" value="${escapeHtml(item.approval || 'Pending')}" onchange="updateFaiPackage(${item.id}, 'approval', this.value)" class="mt-2 w-full border border-slate-300 rounded px-2 py-1 text-sm font-bold text-[#1C355E] bg-white"></div>
+                        <div class="bg-slate-50 border border-slate-200 rounded p-3"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Forms</div><div class="mt-2 space-y-1 text-[11px] font-bold text-[#1C355E]"><label class="flex items-center gap-2"><input type="checkbox" ${item.forms?.form1 ? 'checked' : ''} onchange="toggleFaiForm(${item.id}, 'form1', this.checked)"> Form 1</label><label class="flex items-center gap-2"><input type="checkbox" ${item.forms?.form2 ? 'checked' : ''} onchange="toggleFaiForm(${item.id}, 'form2', this.checked)"> Form 2</label><label class="flex items-center gap-2"><input type="checkbox" ${item.forms?.form3 ? 'checked' : ''} onchange="toggleFaiForm(${item.id}, 'form3', this.checked)"> Form 3</label></div></div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                        <div class="bg-slate-50 border border-slate-200 rounded p-3"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Signed By</div><div class="text-sm font-black text-[#1C355E] mt-2">${escapeHtml(item.approvedBy || 'Pending')}</div></div>
+                        <div class="bg-slate-50 border border-slate-200 rounded p-3"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Signed At</div><div class="text-sm font-black text-[#1C355E] mt-2">${escapeHtml(item.approvedAt || 'Pending')}</div></div>
+                    </div>
+                    <div class="mt-4">
+                        <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Package Notes</label>
+                        <textarea onchange="updateFaiPackage(${item.id}, 'notes', this.value)" class="mt-2 w-full h-24 border border-slate-300 rounded p-3 text-sm text-[#1C355E] bg-white outline-none focus:border-[#1C355E]">${escapeHtml(item.notes || '')}</textarea>
+                    </div>
+                </div>
+            `).join('') : '<div class="bg-white rounded shadow border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest">No FAI packages created yet</div>';
+            const ncrMarkup = ncrRecords.length ? ncrRecords.map(item => `
+                <div class="bg-white rounded shadow border p-5">
+                    <div class="flex justify-between items-start gap-4">
+                        <div>
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.number)} | ${escapeHtml(item.createdAt)}</div>
+                            <h4 class="text-xl font-black text-[#1C355E] uppercase italic mt-2">${escapeHtml(item.featureName || 'Non-Conformance')}</h4>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <select onchange="updateNcrRecord(${item.id}, 'status', this.value)" class="border border-slate-300 rounded px-3 py-2 text-[11px] font-bold text-[#1C355E] bg-white">
+                                ${['Open', 'Investigating', 'Actioned', 'Closed'].map(status => `<option value="${status}" ${item.status === status ? 'selected' : ''}>${status}</option>`).join('')}
+                            </select>
+                            <button onclick="deleteNcrRecord(${item.id})" class="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Delete</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 mt-4">
+                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Feature</label><select onchange="updateNcrRecord(${item.id}, 'featureId', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white">${features.map(feature => `<option value="${feature.id}" ${String(item.featureId) === String(feature.id) ? 'selected' : ''}>${escapeHtml(feature.id)} | ${escapeHtml(feature.name)}</option>`).join('')}</select></div>
+                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Severity</label><select onchange="updateNcrRecord(${item.id}, 'severity', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white">${['Minor', 'Major', 'Critical'].map(value => `<option value="${value}" ${item.severity === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
+                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Disposition</label><select onchange="updateNcrRecord(${item.id}, 'disposition', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white">${['Hold', 'Use As Is', 'Rework', 'Scrap', 'Return to Supplier'].map(value => `<option value="${value}" ${item.disposition === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
+                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Owner</label><input type="text" value="${escapeHtml(item.owner || '')}" onchange="updateNcrRecord(${item.id}, 'owner', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white"></div>
+                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Due Date</label><input type="date" value="${escapeHtml(item.dueDate || '')}" onchange="updateNcrRecord(${item.id}, 'dueDate', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white"></div>
+                    </div>
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4">
+                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Root Cause</label><textarea onchange="updateNcrRecord(${item.id}, 'rootCause', this.value)" class="mt-2 w-full h-24 border border-slate-300 rounded p-3 text-sm text-[#1C355E] bg-white outline-none focus:border-[#1C355E]">${escapeHtml(item.rootCause || '')}</textarea></div>
+                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Corrective Action</label><textarea onchange="updateNcrRecord(${item.id}, 'correctiveAction', this.value)" class="mt-2 w-full h-24 border border-slate-300 rounded p-3 text-sm text-[#1C355E] bg-white outline-none focus:border-[#1C355E]">${escapeHtml(item.correctiveAction || '')}</textarea></div>
+                    </div>
+                </div>
+            `).join('') : '<div class="bg-white rounded shadow border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest">No NCR / CAPA records created yet</div>';
+            const overviewMarkup = `
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                    <div class="bg-white rounded shadow border-l-4 border-blue-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Released Plans</div><div class="text-2xl font-black text-[#1C355E] mt-2">${summary.releasedPlans}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-emerald-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Total Runs</div><div class="text-2xl font-black text-[#1C355E] mt-2">${summary.totalRuns}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-red-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Failed Runs</div><div class="text-2xl font-black text-[#1C355E] mt-2">${summary.failedRuns}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-amber-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Incomplete Runs</div><div class="text-2xl font-black text-[#1C355E] mt-2">${summary.incompleteRuns}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-purple-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Open Alerts</div><div class="text-2xl font-black text-[#1C355E] mt-2">${alerts.filter(item => !item.acknowledged).length}</div></div>
+                </div>
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div class="bg-white rounded shadow border p-5">
+                        <div class="flex items-center justify-between gap-3">
+                            <div><h4 class="text-xl font-black text-[#1C355E] uppercase italic">Plan Health</h4><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Cross-plan quality performance across released work</p></div>
+                            <span class="text-[10px] bg-slate-800 text-white px-3 py-1 rounded-full font-bold uppercase tracking-widest">${summary.planHealth.length} Plans</span>
+                        </div>
+                        <div class="mt-4 space-y-3">
+                            ${summary.planHealth.length ? summary.planHealth.slice(0, 8).map(item => `<div class="border border-slate-200 rounded p-3"><div class="flex justify-between items-start gap-3"><div><p class="text-sm font-black text-[#1C355E] uppercase italic">${escapeHtml(getPlanDisplayName(item.planName, item.metadata))}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(item.metadata.customer || 'No Customer')} ${item.metadata.operation ? `| ${escapeHtml(item.metadata.operation)}` : ''}</p></div><span class="text-[10px] font-bold uppercase tracking-widest ${item.yieldPercent < getEnterprisePolicies().yieldAlertThreshold ? 'text-red-600' : 'text-emerald-600'}">${item.yieldPercent.toFixed(1)}% Yield</span></div><div class="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div class="h-full ${item.yieldPercent < getEnterprisePolicies().yieldAlertThreshold ? 'bg-red-500' : 'bg-emerald-500'}" style="width:${Math.max(4, Math.min(100, item.yieldPercent))}%"></div></div><div class="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">${item.total} runs | ${item.fail} fail | ${item.incomplete} incomplete</div></div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No released-run history yet</div>'}
+                        </div>
+                    </div>
+                    <div class="bg-white rounded shadow border p-5">
+                        <div class="flex items-center justify-between gap-3">
+                            <div><h4 class="text-xl font-black text-[#1C355E] uppercase italic">Failure Pareto</h4><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Highest-frequency failed characteristics across the cloud database</p></div>
+                            <span class="text-[10px] bg-slate-800 text-white px-3 py-1 rounded-full font-bold uppercase tracking-widest">${summary.topFailingFeatures.length} Drivers</span>
+                        </div>
+                        <div class="mt-4 space-y-3">
+                            ${summary.topFailingFeatures.length ? summary.topFailingFeatures.map(item => `<div class="border border-slate-200 rounded p-3"><div class="flex justify-between gap-3"><div><p class="text-sm font-black text-[#1C355E] uppercase italic">${escapeHtml(item.featureName)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(item.planName)} | ${escapeHtml(item.type)}</p></div><span class="text-[10px] font-bold uppercase tracking-widest text-red-600">${item.fail}/${item.total} fail</span></div></div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No failures detected yet</div>'}
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                    <div class="bg-white rounded shadow border p-5">
+                        <h4 class="text-xl font-black text-[#1C355E] uppercase italic">Data Connections</h4>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Reusable templates for CMMs, scanners, and CSV connectors</p>
+                        <div class="mt-4 space-y-3">
+                            ${getDataSourceProfiles().map(profile => `<div class="border border-slate-200 rounded p-3 ${profile.active !== false ? 'bg-slate-50' : 'bg-slate-100 opacity-70'}"><div class="flex items-center justify-between gap-3"><div><p class="text-sm font-black text-[#1C355E]">${escapeHtml(profile.name)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(profile.provider)} | ${escapeHtml(profile.parseMode)} | ${escapeHtml(profile.featureMatch)}</p></div><span class="text-[10px] font-bold uppercase tracking-widest ${profile.active !== false ? 'text-emerald-600' : 'text-slate-500'}">${profile.active !== false ? 'Active' : 'Disabled'}</span></div></div>`).join('')}
+                        </div>
+                    </div>
+                    <div class="bg-white rounded shadow border p-5">
+                        <h4 class="text-xl font-black text-[#1C355E] uppercase italic">Workflow Readiness</h4>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Commercial platform capabilities already present in OmniSync</p>
+                        <div class="mt-4 space-y-3">
+                            ${[
+                                ['Shared Cloud Database', cloudState.enabled ? 'Online' : 'Local Only'],
+                                ['Role-Based Access', currentPermissions.size ? 'Enabled' : 'Default'],
+                                ['Audit Trail', cloudState.enabled ? 'Enabled' : 'Needs Cloud'],
+                                ['Digital Sign-Off', 'Enabled in FAI'],
+                                ['Calibration Tracking', 'Enabled']
+                            ].map(([label, state]) => `<div class="flex justify-between gap-3 border border-slate-200 rounded p-3 bg-slate-50"><span class="text-[11px] font-black text-[#1C355E] uppercase">${label}</span><span class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${state}</span></div>`).join('')}
+                        </div>
+                    </div>
+                    <div class="bg-white rounded shadow border p-5">
+                        <h4 class="text-xl font-black text-[#1C355E] uppercase italic">Selected Plan Context</h4>
+                        ${currentPlanName ? `<p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(getPlanDisplayName())}</p><div class="mt-4 space-y-3"><div class="border border-slate-200 rounded p-3 bg-slate-50"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Open NCRs</div><div class="text-2xl font-black text-[#1C355E] mt-2">${openNcrCount}</div></div><div class="border border-slate-200 rounded p-3 bg-slate-50"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Latest Run Fails</div><div class="text-2xl font-black text-[#1C355E] mt-2">${failCount}</div></div><div class="border border-slate-200 rounded p-3 bg-slate-50"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">FAI Packages</div><div class="text-2xl font-black text-[#1C355E] mt-2">${faiPackages.length}</div></div></div>` : '<div class="border border-dashed border-slate-300 rounded p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest mt-4">Select a released plan to open plan-specific quality workflows</div>'}
+                    </div>
+                </div>
+            `;
+            const alertsMarkup = `
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="bg-white rounded shadow border-l-4 border-red-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Open Alerts</div><div class="text-2xl font-black text-[#1C355E] mt-2">${alerts.filter(item => !item.acknowledged).length}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-amber-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Critical / High</div><div class="text-2xl font-black text-[#1C355E] mt-2">${alerts.filter(item => ['Critical', 'High'].includes(item.severity)).length}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-blue-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Acknowledged</div><div class="text-2xl font-black text-[#1C355E] mt-2">${alerts.filter(item => item.acknowledged).length}</div></div>
+                    <div class="bg-white rounded shadow border-l-4 border-slate-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Calibration Alerts</div><div class="text-2xl font-black text-[#1C355E] mt-2">${alerts.filter(item => item.category === 'Calibration').length}</div></div>
+                </div>
+                <div class="space-y-4">
+                    ${alerts.length ? alerts.map(item => `<div class="bg-white rounded shadow border p-5 ${item.acknowledged ? 'opacity-70' : ''}"><div class="flex items-start justify-between gap-4"><div><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.category)} | ${escapeHtml(item.severity)}</div><h4 class="text-xl font-black text-[#1C355E] uppercase italic mt-2">${escapeHtml(item.title)}</h4><p class="text-sm text-slate-600 mt-3">${escapeHtml(item.detail)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-3">Recommended Action</p><p class="text-sm font-bold text-[#1C355E] mt-1">${escapeHtml(item.action)}</p></div><div class="flex flex-col items-end gap-2"><span class="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full ${item.severity === 'Critical' ? 'bg-red-100 text-red-700' : item.severity === 'High' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}">${escapeHtml(item.severity)}</span>${item.acknowledged ? '<span class="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Acknowledged</span>' : `<button onclick="acknowledgeAlert('${escapeHtml(item.id)}')" class="bg-[#1C355E] text-white px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Acknowledge</button>`}</div></div></div>`).join('') : '<div class="bg-white rounded shadow border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest">No active alerts</div>'}
+                </div>
+            `;
+            const auditMarkup = `
+                <div class="bg-white rounded shadow border p-5">
+                    <div class="flex items-center justify-between gap-3">
+                        <div><h4 class="text-xl font-black text-[#1C355E] uppercase italic">Audit Trail</h4><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Cloud actions recorded across planning, execution, imports, and quality workflows</p></div>
+                        <button onclick="loadAuditTrail().then(() => renderQualityPage())" class="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Refresh</button>
+                    </div>
+                    <div class="mt-4 space-y-3">
+                        ${recentAuditEvents.length ? recentAuditEvents.map(event => `<div class="border border-slate-200 rounded p-3"><div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(event.action || 'EVENT')} | ${escapeHtml(event.entityType || 'entity')}</p><p class="text-sm font-black text-[#1C355E] mt-1">${escapeHtml(event.entityId || '')}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1">${escapeHtml(event.timestamp || '')}</p></div><span class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(event.actorId || 'system')}</span></div>${event.details ? `<pre class="mt-3 text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded p-3 overflow-x-auto">${escapeHtml(JSON.stringify(event.details, null, 2))}</pre>` : ''}</div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest">No audit events have been loaded yet</div>'}
+                    </div>
+                </div>
+            `;
+            if (!currentPlanName && ['fai', 'ncr'].includes(selectedQualityTab)) {
+                content.innerHTML = `${summaryCards}${tabsMarkup}<div class="bg-white rounded shadow border border-dashed border-slate-300 p-10 text-center"><h3 class="text-lg font-black text-[#1C355E] uppercase italic">Select a Released Plan</h3><p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 mt-3">Overview, alerts, and audit are available globally. FAI and NCR/CAPA remain tied to a selected released plan and revision.</p></div>`;
+                return;
+            }
+            content.innerHTML = `${summaryCards}${tabsMarkup}${selectedQualityTab === 'overview' ? overviewMarkup : selectedQualityTab === 'alerts' ? alertsMarkup : selectedQualityTab === 'audit' ? auditMarkup : selectedQualityTab === 'fai' ? faiMarkup : ncrMarkup}`;
+        }
+
         function initializeSettings() {
             const inspectors = localStorage.getItem('omnisync_settings_inspectors') === null
                 ? [...defaultInspectorOptions]
@@ -1953,10 +2556,16 @@
             const reportBuilder = localStorage.getItem('omnisync_report_builder') === null
                 ? normalizeReportBuilderSettings(defaultReportBuilderSettings)
                 : normalizeReportBuilderSettings(JSON.parse(localStorage.getItem('omnisync_report_builder') || '{}'));
+            const profiles = localStorage.getItem('omnisync_data_source_profiles') === null
+                ? normalizeDataSourceProfiles(defaultDataSourceProfiles)
+                : normalizeDataSourceProfiles(JSON.parse(localStorage.getItem('omnisync_data_source_profiles') || '[]'));
+            const policies = getEnterprisePolicies();
             localStorage.setItem('omnisync_settings_inspectors', JSON.stringify(inspectors));
             localStorage.setItem('omnisync_settings_tools', JSON.stringify(tools));
             localStorage.setItem('omnisync_settings_gages', JSON.stringify(gages));
             localStorage.setItem('omnisync_report_builder', JSON.stringify(reportBuilder));
+            localStorage.setItem('omnisync_data_source_profiles', JSON.stringify(profiles));
+            localStorage.setItem('omnisync_enterprise_policies', JSON.stringify(policies));
             renderSettingsPage();
             renderInstrumentsPage();
             populateInspectorSelect();
@@ -1986,6 +2595,41 @@
             localStorage.setItem(key, JSON.stringify(normalized));
         }
 
+        function addDataSourceProfile() {
+            const profiles = getDataSourceProfiles();
+            profiles.unshift({
+                id: `profile-${Date.now()}`,
+                name: 'New Import Profile',
+                provider: 'Generic',
+                format: 'CSV',
+                parseMode: 'column-based',
+                featureMatch: 'ID + Name',
+                active: true,
+                notes: ''
+            });
+            saveDataSourceProfiles(profiles);
+            renderSettingsPage();
+        }
+
+        function updateDataSourceProfile(index, field, value) {
+            const profiles = getDataSourceProfiles();
+            if (!profiles[index]) return;
+            profiles[index] = {
+                ...profiles[index],
+                [field]: field === 'active' ? value === true : value
+            };
+            saveDataSourceProfiles(profiles);
+            renderSettingsPage();
+        }
+
+        function deleteDataSourceProfile(index) {
+            const profiles = getDataSourceProfiles();
+            if (!profiles[index]) return;
+            profiles.splice(index, 1);
+            saveDataSourceProfiles(profiles);
+            renderSettingsPage();
+        }
+
         function buildSelectOptionsMarkup(options, selectedValue, emptyLabel) {
             const safeOptions = Array.isArray(options) ? [...options] : [];
             const normalizedSelected = (selectedValue || '').toString().trim();
@@ -2010,6 +2654,7 @@
             const inspectorListEl = document.getElementById('inspector-settings-list');
             if (!inspectorListEl) return;
             const userSection = document.getElementById('user-management-section');
+            const dataSourceListEl = document.getElementById('data-source-profile-list');
             if (userSection) userSection.classList.toggle('hidden', !canManageUsers());
 
             const renderRows = (type, list) => {
@@ -2028,6 +2673,47 @@
 
             const inspectors = getInspectorOptions();
             inspectorListEl.innerHTML = inspectors.length ? renderRows('inspectors', inspectors) : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No inspectors configured</div>';
+            const policies = getEnterprisePolicies();
+            const yieldField = document.getElementById('policy-yield-threshold');
+            const ncrField = document.getElementById('policy-ncr-aging');
+            const lowConfidenceField = document.getElementById('policy-low-confidence');
+            const autoApproveField = document.getElementById('policy-auto-approve');
+            const requireReviewField = document.getElementById('policy-require-review');
+            if (yieldField) yieldField.value = `${policies.yieldAlertThreshold}`;
+            if (ncrField) ncrField.value = `${policies.ncrAgingDays}`;
+            if (lowConfidenceField) lowConfidenceField.value = `${scanPolicy.lowConfidenceThreshold}`;
+            if (autoApproveField) autoApproveField.value = `${scanPolicy.autoApproveThreshold}`;
+            if (requireReviewField) requireReviewField.checked = scanPolicy.requireReview !== false;
+            if (dataSourceListEl) {
+                const profiles = getDataSourceProfiles();
+                dataSourceListEl.innerHTML = profiles.length ? profiles.map((profile, index) => `
+                    <div class="border border-slate-200 rounded p-4 space-y-3">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(profile.provider)} • ${escapeHtml(profile.format)}</p>
+                                <h4 class="text-lg font-black text-[#1C355E] italic mt-1">${escapeHtml(profile.name)}</h4>
+                            </div>
+                            <label class="text-[10px] font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
+                                <input type="checkbox" ${profile.active !== false ? 'checked' : ''} onchange="updateDataSourceProfile(${index}, 'active', this.checked)">
+                                Active
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <input type="text" value="${escapeHtml(profile.name)}" onchange="updateDataSourceProfile(${index}, 'name', this.value)" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white outline-none focus:border-[#1C355E]" placeholder="Profile Name">
+                            <input type="text" value="${escapeHtml(profile.provider)}" onchange="updateDataSourceProfile(${index}, 'provider', this.value)" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white outline-none focus:border-[#1C355E]" placeholder="Provider">
+                            <select onchange="updateDataSourceProfile(${index}, 'parseMode', this.value)" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white outline-none focus:border-[#1C355E]">
+                                <option value="column-based" ${profile.parseMode === 'column-based' ? 'selected' : ''}>Column-Based</option>
+                                <option value="row-based" ${profile.parseMode === 'row-based' ? 'selected' : ''}>Row-Based</option>
+                            </select>
+                            <input type="text" value="${escapeHtml(profile.featureMatch)}" onchange="updateDataSourceProfile(${index}, 'featureMatch', this.value)" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white outline-none focus:border-[#1C355E]" placeholder="Feature Match">
+                        </div>
+                        <textarea onchange="updateDataSourceProfile(${index}, 'notes', this.value)" class="w-full h-20 border border-slate-300 rounded p-3 text-sm text-[#1C355E] bg-white outline-none focus:border-[#1C355E]" placeholder="Notes, mapping assumptions, file conventions...">${escapeHtml(profile.notes || '')}</textarea>
+                        <div class="flex justify-end">
+                            <button onclick="deleteDataSourceProfile(${index})" class="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 transition-colors">Delete</button>
+                        </div>
+                    </div>
+                `).join('') : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No data source profiles configured</div>';
+            }
             if (canManageUsers()) {
                 renderUserManagementList();
             }
@@ -2697,6 +3383,8 @@
                 cloudState.user = payload.user;
                 sessionStorage.setItem(CLOUD_TOKEN_KEY, payload.token);
                 userRole = normalizeUserRole(payload.user?.role);
+                await loadPermissions();
+                await loadScanPolicy();
                 await hydrateCloudSnapshot();
                 initializeSettings();
                 updateLibrary();
@@ -2848,7 +3536,10 @@
                         <p class="text-sm font-black text-[#1C355E]">${escapeHtml(user.displayName || user.email || 'User')}</p>
                         <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(user.email || '')}</p>
                     </div>
-                    <span class="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border border-slate-200 bg-slate-50 text-slate-700">${escapeHtml((user.role || '').toString())}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border border-slate-200 bg-slate-50 text-slate-700">${escapeHtml((user.role || '').toString())}</span>
+                        ${user.id === cloudState.user?.id ? '' : `<button onclick="deleteManagedUser('${escapeHtml(user.id)}')" class="bg-red-50 border border-red-200 text-red-600 px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 transition-colors">Delete</button>`}
+                    </div>
                 </div>
             `).join('');
         }
@@ -2880,6 +3571,90 @@
             }
         }
 
+        function updateScanReviewBadge() {
+            const badge = document.getElementById('scan-review-count');
+            if (badge) badge.innerText = String(scanReviewQueue.length);
+            const btn = document.getElementById('scan-review-btn');
+            if (btn) {
+                const canReview = hasPermission('SCAN_REVIEW') && mode === 'PLAN' && currentPlanName;
+                btn.classList.toggle('hidden', !canReview);
+            }
+        }
+
+        function openScanReviewQueue() {
+            if (!hasPermission('SCAN_REVIEW')) return;
+            renderScanReviewQueue();
+            const modal = document.getElementById('scan-review-modal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeScanReviewQueue() {
+            const modal = document.getElementById('scan-review-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function renderScanReviewQueue() {
+            const list = document.getElementById('scan-review-list');
+            if (!list) return;
+            if (!scanReviewQueue.length) {
+                list.innerHTML = '<div class="border border-dashed border-slate-300 rounded p-8 text-center text-sm font-bold uppercase tracking-widest text-slate-500">No items waiting for review.</div>';
+                return;
+            }
+            list.innerHTML = scanReviewQueue.map((item, index) => `
+                <div class="border border-slate-200 rounded p-3 bg-slate-50">
+                    <div class="flex justify-between items-start gap-3">
+                        <div>
+                            <p class="text-sm font-black text-[#1C355E]">${escapeHtml(item.name || `Dimension ${index + 1}`)}</p>
+                            <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Confidence ${(Number(item.confidence || 0) * 100).toFixed(0)}% • ${escapeHtml(item.type || 'Linear')}</p>
+                            <p class="text-[10px] text-slate-600 mt-1">${escapeHtml(item.description || '')}</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="approveScanReviewItem(${index})" class="bg-green-600 text-white px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest">Approve</button>
+                            <button onclick="rejectScanReviewItem(${index})" class="bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest">Reject</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function approveScanReviewItem(index) {
+            const item = scanReviewQueue[index];
+            if (!item) return;
+            const nextId = features.length ? Math.max(...features.map(feature => feature.id || 0)) + 1 : 1;
+            item.id = nextId;
+            item.needsReview = false;
+            features.push(normalizeFeatureRecord(item));
+            scanReviewQueue.splice(index, 1);
+            updateScanReviewBadge();
+            renderScanReviewQueue();
+            renderApp();
+            markPlanDirty();
+        }
+
+        function rejectScanReviewItem(index) {
+            if (!scanReviewQueue[index]) return;
+            scanReviewQueue.splice(index, 1);
+            updateScanReviewBadge();
+            renderScanReviewQueue();
+        }
+
+        async function deleteManagedUser(userId) {
+            if (!canManageUsers()) return;
+            const safeId = (userId || '').toString().trim();
+            if (!safeId) return;
+            if (!confirm('Delete this user? This action cannot be undone.')) return;
+            try {
+                const response = await cloudApi(`/api/users/${encodeURIComponent(safeId)}`, {
+                    method: 'DELETE'
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(payload?.error || 'Failed to delete user');
+                await refreshUserManagement();
+            } catch (error) {
+                alert(error.message || 'Failed to delete user');
+            }
+        }
+
         async function exitSystem() {
             try {
                 if (cloudState.token) {
@@ -2891,6 +3666,8 @@
             cloudState = { ...cloudState, enabled: false, token: '', user: null, pendingOps: [] };
             sessionStorage.removeItem(CLOUD_TOKEN_KEY);
             managedUsers = [];
+            currentPermissions = new Set();
+            scanReviewQueue = [];
             applyRoleAccess();
             setMode('PLAN');
             document.getElementById('login-overlay').style.display = '';
@@ -3025,6 +3802,7 @@
             const actId = document.activeElement ? document.activeElement.id : null;
             const start = document.activeElement ? document.activeElement.selectionStart : null;
             const end = document.activeElement ? document.activeElement.selectionEnd : null;
+            updateScanReviewBadge();
 
             let src = viewingPart ? [...viewingPart.measurements].sort((a, b) => {
                 const statusRank = status => status === 'FAIL' ? 0 : status === 'PASS' ? 1 : 2;
@@ -3520,6 +4298,7 @@
                 inspector,
                 note: runNote,
                 context,
+                sourceProfile: editingRecordId ? (getSupervisorHistory().find(item => item.id === editingRecordId)?.sourceProfile || '') : '',
                 status: hasFail ? 'FAIL' : hasSkip ? 'INCOMPLETE' : 'PASS',
                 measurements: JSON.parse(JSON.stringify(features.map(f => ({ ...f, toolUsed: f.toolUsed || toolOptions[0] || '' }))))
             };
@@ -3530,6 +4309,12 @@
                 hist.push(rec);
             }
             localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(hist));
+            recordAuditEvent(editingRecordId ? 'RUN_UPDATE' : 'RUN_RECORD', 'inspection-run', `${currentPlanName}:${recordId}`, {
+                status: rec.status,
+                inspector: rec.inspector,
+                measurements: rec.measurements.length,
+                failedFeatures: rec.measurements.filter(item => item.status === 'FAIL').map(item => item.id)
+            });
             resetExecuteEntryState();
         }
 
@@ -3598,6 +4383,23 @@
                 keys.filter(Boolean).forEach(key => map.set(key, feature));
             });
             return map;
+        }
+
+        function detectImportProfile(rows) {
+            const profiles = getDataSourceProfiles().filter(profile => profile.active !== false);
+            if (!rows?.length) return profiles[0] || null;
+            if (isRowBasedInspectionCsv(rows)) {
+                return profiles.find(profile => `${profile.parseMode || ''}`.toLowerCase() === 'row-based')
+                    || profiles.find(profile => `${profile.provider || ''}`.toLowerCase().includes('aberlink'))
+                    || profiles[0]
+                    || null;
+            }
+            const headerText = (rows[0] || []).map(cell => `${cell || ''}`.toLowerCase()).join(' ');
+            return profiles.find(profile => {
+                const provider = `${profile.provider || ''}`.toLowerCase();
+                const notes = `${profile.notes || ''}`.toLowerCase();
+                return provider.includes('scan') || provider.includes('generic') || notes.includes('column') || headerText.includes('feature');
+            }) || profiles[0] || null;
         }
 
         function evaluateImportedMeasurement(specFeature, actualValue, toolUsed) {
@@ -3670,6 +4472,7 @@
                 inspector,
                 note: '',
                 context: { ...defaultExecutionContext },
+                sourceProfile: '',
                 status: hasFail ? 'FAIL' : hasSkip ? 'INCOMPLETE' : 'PASS',
                 measurements
             };
@@ -3716,6 +4519,7 @@
                 inspector,
                 note: metaMap.get('notes') || '',
                 context: { ...defaultExecutionContext },
+                sourceProfile: '',
                 status: hasFail ? 'FAIL' : hasSkip ? 'INCOMPLETE' : 'PASS',
                 measurements
             };
@@ -3730,12 +4534,15 @@
             if (!files.length) return;
 
             const importedRecords = [];
+            const matchedProfiles = [];
             for (const [fileIndex, file] of files.entries()) {
                 const text = await file.text();
                 const rows = parseCsvText(text);
                 if (rows.length < 2) {
                     continue;
                 }
+                const matchedProfile = detectImportProfile(rows);
+                if (matchedProfile?.name) matchedProfiles.push(matchedProfile.name);
 
                 const headers = rows[0];
                 const dataRows = rows.slice(1).filter(row => row.some(cell => `${cell || ''}`.trim() !== ''));
@@ -3746,6 +4553,9 @@
                 const recordsFromFile = isRowBasedInspectionCsv(rows)
                     ? [buildImportedRecordFromFeatureRows(rows)]
                     : dataRows.map((row, index) => buildImportedRecordFromRow(headers, row, (fileIndex * 1000) + index));
+                recordsFromFile.forEach(record => {
+                    record.sourceProfile = matchedProfile?.name || '';
+                });
                 importedRecords.push(...recordsFromFile);
             }
 
@@ -3756,6 +4566,11 @@
 
             const history = getSupervisorHistory();
             localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(history.concat(importedRecords)));
+            recordAuditEvent('CSV_IMPORT', 'run-history', currentPlanName, {
+                files: files.map(file => file.name),
+                importedRecords: importedRecords.length,
+                profiles: Array.from(new Set(matchedProfiles))
+            });
 
             populateExecuteRecordSelect();
             updateCurrentPartId();
@@ -3838,7 +4653,7 @@
             const toolMap = new Map(toolCatalog.map(tool => [tool.name, tool]));
             const rows = [[
                 'Part Number', 'Revision', 'Plan Name', 'Customer', 'Run ID', 'Time', 'Status', 'Inspector',
-                'Lot', 'Batch', 'Work Order', 'Operation', 'Machine',
+                'Source Profile', 'Lot', 'Batch', 'Work Order', 'Operation', 'Machine',
                 'Feature ID', 'Feature', 'Type', 'Nominal', 'Upper Tol', 'Lower Tol', 'Actual', 'Feature Status',
                 'Tool', 'Tool Type', 'Tool Serial', 'Tool Calibration Due', 'Tool Bluetooth ID'
             ]];
@@ -3855,6 +4670,7 @@
                         record.time || '',
                         record.status || '',
                         record.inspector || record.operator || '',
+                        record.sourceProfile || '',
                         context.lot,
                         context.batch,
                         context.workOrder,
@@ -4953,7 +5769,7 @@
 
                 updateAIScanStatus("Building inspection plan...");
 
-                features = candidates.map((candidate, index) => {
+                const extractedFeatures = candidates.map((candidate, index) => {
                     const bbox = candidate.bbox || null;
                     let balloonX = candidate.x;
                     let balloonY = candidate.y;
@@ -4976,7 +5792,8 @@
                         : selectionRect ? selectionRect : null;
 
                     const confidence = estimateCandidateConfidence(candidate);
-                    const needsReview = confidence < LOW_CONFIDENCE_THRESHOLD;
+                    const reviewThreshold = Number.isFinite(scanPolicy.lowConfidenceThreshold) ? scanPolicy.lowConfidenceThreshold : LOW_CONFIDENCE_THRESHOLD;
+                    const needsReview = confidence < reviewThreshold;
                     return normalizeFeatureRecord({
                         id: index + 1,
                         name: inferFeatureName(candidate, index),
@@ -4998,11 +5815,15 @@
                         status: "PENDING"
                     });
                 });
-
+                const approvedFeatures = extractedFeatures.filter(feature => !(scanPolicy.requireReview && feature.needsReview));
+                const queuedFeatures = extractedFeatures.filter(feature => scanPolicy.requireReview && feature.needsReview);
+                features = approvedFeatures;
+                scanReviewQueue = queuedFeatures;
+                updateScanReviewBadge();
                 nextFeatureId = features.length + 1;
                 renderApp();
                 markPlanDirty();
-                updateAIScanStatus(`Created ${features.length} feature${features.length === 1 ? '' : 's'}.`);
+                updateAIScanStatus(`Created ${features.length} feature${features.length === 1 ? '' : 's'}${scanReviewQueue.length ? `, queued ${scanReviewQueue.length} for review` : ''}.`);
                 setTimeout(removeAIScanOverlay, 700);
             } catch (error) {
                 console.error("AI scan failed", error);
@@ -5362,6 +6183,7 @@
         async function savePlan() { 
             const name = document.getElementById('plan-name-input').value.trim(); 
             if(!name) return alert("Enter Name"); 
+            const previousPlanName = currentPlanName;
             currentPlanName = name;
             currentPlanMetadata = normalizePlanMetadata(currentPlanMetadata);
             let plans = JSON.parse(localStorage.getItem('omnisync_plans') || '[]'); 
@@ -5408,6 +6230,13 @@
             }
 
             markPlanSaved();
+            recordAuditEvent('PLAN_SAVE', 'plan', name, {
+                previousPlanName: previousPlanName || '',
+                featureCount: features.length,
+                drawingType: planData.drawingType || '',
+                planStatus: currentPlanMetadata.status || 'Draft',
+                hasDrawing: !!currentPdfDataUrl
+            });
             alert(saveMessage);
             try {
                 updateLibrary();
@@ -5880,6 +6709,7 @@
             } catch (error) {
                 console.error('Failed to delete PDF asset', error);
             }
+            recordAuditEvent('PLAN_DELETE', 'plan', n, { deletedByMode: mode });
 
             if (currentPlanName === n) {
                 exitToLibrary();

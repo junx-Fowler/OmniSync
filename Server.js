@@ -3,11 +3,16 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = process.env.OMNISYNC_DATA_DIR || path.join(__dirname, 'data');
+const LEGACY_DATA_DIR = path.join(__dirname, 'data');
+const DEFAULT_PERSISTENT_DATA_DIR = path.join(os.homedir(), '.omnisync', 'data');
+const DATA_DIR = process.env.OMNISYNC_DATA_DIR || DEFAULT_PERSISTENT_DATA_DIR;
 const DB_PATH = path.join(DATA_DIR, 'cloud-db.json');
+const LEGACY_DB_PATH = path.join(LEGACY_DATA_DIR, 'cloud-db.json');
+const DB_SCHEMA_VERSION = 2;
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -23,6 +28,18 @@ function normalizeRole(role) {
     if (normalized === 'planner') return 'planner';
     if (normalized === 'supervisor') return 'supervisor';
     return 'admin';
+}
+
+const PERMISSIONS_BY_ROLE = {
+    operator: ['EXECUTE_RUN', 'PLAN_VIEW'],
+    planner: ['PLAN_VIEW', 'PLAN_EDIT', 'PLAN_RELEASE', 'SCAN_REVIEW'],
+    supervisor: ['PLAN_VIEW', 'PLAN_EDIT', 'PLAN_RELEASE', 'EXECUTE_RUN', 'SUPERVISOR_VIEW', 'QUALITY_VIEW', 'SETTINGS_VIEW', 'USER_MANAGE', 'SCAN_REVIEW'],
+    admin: ['PLAN_VIEW', 'PLAN_EDIT', 'PLAN_RELEASE', 'EXECUTE_RUN', 'SUPERVISOR_VIEW', 'QUALITY_VIEW', 'SETTINGS_VIEW', 'USER_MANAGE', 'SCAN_REVIEW']
+};
+
+function getPermissionsForRole(role) {
+    const normalized = normalizeRole(role);
+    return [...(PERMISSIONS_BY_ROLE[normalized] || [])];
 }
 
 function getDefaultUsers() {
@@ -107,21 +124,61 @@ function ensureDb() {
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
     }
+    if (!fs.existsSync(DB_PATH) && fs.existsSync(LEGACY_DB_PATH)) {
+        fs.copyFileSync(LEGACY_DB_PATH, DB_PATH);
+    }
     if (!fs.existsSync(DB_PATH)) {
         const initialDb = {
+            schemaVersion: DB_SCHEMA_VERSION,
             users: getDefaultUsers(),
             sessions: {},
             storage: {
                 'fowler-demo': {}
             },
+            orgSettings: {
+                'fowler-demo': {
+                    scanPolicy: {
+                        lowConfidenceThreshold: 0.62,
+                        autoApproveThreshold: 0.85,
+                        requireReview: true
+                    }
+                }
+            },
+            auditEvents: [],
             measurementsDb: []
         };
         fs.writeFileSync(DB_PATH, JSON.stringify(initialDb, null, 2), 'utf8');
         return;
     }
     const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+    let changed = false;
     db.users = Array.isArray(db.users) ? db.users : [];
-    if (ensureDefaultUsers(db)) {
+    changed = ensureDefaultUsers(db) || changed;
+    if (!Number.isFinite(db.schemaVersion) || db.schemaVersion < DB_SCHEMA_VERSION) {
+        db.schemaVersion = DB_SCHEMA_VERSION;
+        changed = true;
+    }
+    if (!db.orgSettings || typeof db.orgSettings !== 'object') {
+        db.orgSettings = {};
+        changed = true;
+    }
+    if (!db.orgSettings['fowler-demo']) {
+        db.orgSettings['fowler-demo'] = {};
+        changed = true;
+    }
+    if (!db.orgSettings['fowler-demo'].scanPolicy) {
+        db.orgSettings['fowler-demo'].scanPolicy = {
+            lowConfidenceThreshold: 0.62,
+            autoApproveThreshold: 0.85,
+            requireReview: true
+        };
+        changed = true;
+    }
+    if (!Array.isArray(db.auditEvents)) {
+        db.auditEvents = [];
+        changed = true;
+    }
+    if (changed) {
         fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
     }
 }
@@ -133,6 +190,10 @@ function readDb() {
 
 function writeDb(db) {
     ensureDb();
+    const backupPath = `${DB_PATH}.bak`;
+    if (fs.existsSync(DB_PATH)) {
+        fs.copyFileSync(DB_PATH, backupPath);
+    }
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
 }
 
@@ -181,8 +242,30 @@ function requireRole(allowedRoles) {
     };
 }
 
+function requirePermission(permission) {
+    return (req, res, next) => {
+        const permissions = new Set(getPermissionsForRole(req.user?.role));
+        if (!permissions.has(permission)) {
+            return res.status(403).json({ error: `Missing permission: ${permission}` });
+        }
+        next();
+    };
+}
+
+function logAuditEvent(db, event) {
+    if (!db || !Array.isArray(db.auditEvents)) return;
+    db.auditEvents.push({
+        id: `audit-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+        timestamp: new Date().toISOString(),
+        ...event
+    });
+    if (db.auditEvents.length > 20000) {
+        db.auditEvents = db.auditEvents.slice(-20000);
+    }
+}
+
 app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, service: 'OmniSync Cloud API', timestamp: new Date().toISOString() });
+    res.json({ ok: true, service: 'OmniSync Cloud API', schemaVersion: DB_SCHEMA_VERSION, timestamp: new Date().toISOString() });
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -203,6 +286,13 @@ app.post('/api/auth/login', (req, res) => {
     if (!db.storage[user.orgId]) {
         db.storage[user.orgId] = {};
     }
+    logAuditEvent(db, {
+        orgId: user.orgId,
+        actorId: user.id,
+        action: 'AUTH_LOGIN',
+        entityType: 'session',
+        entityId: token
+    });
     writeDb(db);
 
     res.json({
@@ -215,7 +305,21 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
     res.json({ user: sanitizeUser({ ...req.user, role: normalizeRole(req.user.role) }) });
 });
 
+app.get('/api/permissions/me', authMiddleware, (req, res) => {
+    res.json({
+        role: normalizeRole(req.user.role),
+        permissions: getPermissionsForRole(req.user.role)
+    });
+});
+
 app.post('/api/auth/logout', authMiddleware, (req, res) => {
+    logAuditEvent(req.db, {
+        orgId: req.user.orgId,
+        actorId: req.user.id,
+        action: 'AUTH_LOGOUT',
+        entityType: 'session',
+        entityId: req.sessionToken
+    });
     delete req.db.sessions[req.sessionToken];
     writeDb(req.db);
     res.json({ ok: true });
@@ -256,11 +360,118 @@ app.post('/api/users', authMiddleware, requireRole(['supervisor', 'admin']), (re
         orgId: req.user.orgId
     };
     req.db.users.push(user);
+    logAuditEvent(req.db, {
+        orgId: req.user.orgId,
+        actorId: req.user.id,
+        action: 'USER_CREATE',
+        entityType: 'user',
+        entityId: user.id,
+        after: { email: user.email, role: user.role, displayName: user.displayName }
+    });
     writeDb(req.db);
     res.status(201).json({ user: sanitizeUser(user) });
 });
 
-app.get('/api/storage/snapshot', authMiddleware, (req, res) => {
+app.delete('/api/users/:id', authMiddleware, requireRole(['supervisor', 'admin']), (req, res) => {
+    const userId = String(req.params.id || '').trim();
+    if (!userId) {
+        return res.status(400).json({ error: 'User id is required' });
+    }
+    const index = (req.db.users || []).findIndex(user => user.id === userId && user.orgId === req.user.orgId);
+    if (index === -1) {
+        return res.status(404).json({ error: 'User not found' });
+    }
+    const target = req.db.users[index];
+    if (target.id === req.user.id) {
+        return res.status(400).json({ error: 'You cannot delete your own user' });
+    }
+    req.db.users.splice(index, 1);
+    Object.keys(req.db.sessions || {}).forEach(token => {
+        if (req.db.sessions[token]?.userId === target.id) delete req.db.sessions[token];
+    });
+    logAuditEvent(req.db, {
+        orgId: req.user.orgId,
+        actorId: req.user.id,
+        action: 'USER_DELETE',
+        entityType: 'user',
+        entityId: target.id,
+        before: { email: target.email, role: target.role, displayName: target.displayName }
+    });
+    writeDb(req.db);
+    res.json({ ok: true });
+});
+
+app.get('/api/audit', authMiddleware, requirePermission('SUPERVISOR_VIEW'), (req, res) => {
+    const entityType = String(req.query.entityType || '').trim();
+    const entityId = String(req.query.entityId || '').trim();
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+    const events = (req.db.auditEvents || [])
+        .filter(event => event.orgId === req.user.orgId)
+        .filter(event => !entityType || event.entityType === entityType)
+        .filter(event => !entityId || event.entityId === entityId)
+        .slice(-limit)
+        .reverse();
+    res.json({ events });
+});
+
+app.post('/api/audit', authMiddleware, requirePermission('PLAN_VIEW'), (req, res) => {
+    const action = String(req.body.action || '').trim().toUpperCase();
+    const entityType = String(req.body.entityType || '').trim();
+    const entityId = String(req.body.entityId || '').trim();
+    const details = req.body.details && typeof req.body.details === 'object' ? req.body.details : {};
+    if (!action || !entityType || !entityId) {
+        return res.status(400).json({ error: 'action, entityType, and entityId are required' });
+    }
+    logAuditEvent(req.db, {
+        orgId: req.user.orgId,
+        actorId: req.user.id,
+        action,
+        entityType,
+        entityId,
+        details
+    });
+    writeDb(req.db);
+    res.status(201).json({ ok: true });
+});
+
+app.get('/api/scan/policy', authMiddleware, requirePermission('PLAN_VIEW'), (req, res) => {
+    const org = req.user.orgId;
+    const policy = req.db.orgSettings?.[org]?.scanPolicy || {
+        lowConfidenceThreshold: 0.62,
+        autoApproveThreshold: 0.85,
+        requireReview: true
+    };
+    res.json({ policy });
+});
+
+app.post('/api/scan/policy', authMiddleware, requirePermission('PLAN_EDIT'), (req, res) => {
+    const org = req.user.orgId;
+    const current = req.db.orgSettings?.[org]?.scanPolicy || {};
+    const lowConfidenceThreshold = Number(req.body.lowConfidenceThreshold);
+    const autoApproveThreshold = Number(req.body.autoApproveThreshold);
+    const requireReview = req.body.requireReview !== false;
+    const policy = {
+        lowConfidenceThreshold: Number.isFinite(lowConfidenceThreshold) ? Math.max(0.2, Math.min(0.95, lowConfidenceThreshold)) : (current.lowConfidenceThreshold ?? 0.62),
+        autoApproveThreshold: Number.isFinite(autoApproveThreshold) ? Math.max(0.3, Math.min(0.99, autoApproveThreshold)) : (current.autoApproveThreshold ?? 0.85),
+        requireReview
+    };
+    req.db.orgSettings = req.db.orgSettings || {};
+    req.db.orgSettings[org] = req.db.orgSettings[org] || {};
+    req.db.orgSettings[org].scanPolicy = policy;
+    logAuditEvent(req.db, {
+        orgId: req.user.orgId,
+        actorId: req.user.id,
+        action: 'SCAN_POLICY_UPDATE',
+        entityType: 'scanPolicy',
+        entityId: org,
+        before: current,
+        after: policy
+    });
+    writeDb(req.db);
+    res.json({ policy });
+});
+
+app.get('/api/storage/snapshot', authMiddleware, requirePermission('PLAN_VIEW'), (req, res) => {
     const orgStorage = req.db.storage[req.user.orgId] || {};
     res.json({
         orgId: req.user.orgId,
@@ -268,7 +479,7 @@ app.get('/api/storage/snapshot', authMiddleware, (req, res) => {
     });
 });
 
-app.post('/api/storage/sync', authMiddleware, (req, res) => {
+app.post('/api/storage/sync', authMiddleware, requirePermission('PLAN_VIEW'), (req, res) => {
     const ops = Array.isArray(req.body.ops) ? req.body.ops : [];
     const orgStorage = req.db.storage[req.user.orgId] || {};
 
@@ -292,8 +503,8 @@ app.post('/api/storage/sync', authMiddleware, (req, res) => {
     res.json({ ok: true, keys: Object.keys(orgStorage).length });
 });
 
-app.post('/api/measurements', (req, res) => {
-    const db = readDb();
+app.post('/api/measurements', authMiddleware, requirePermission('EXECUTE_RUN'), (req, res) => {
+    const db = req.db;
     const { toolId, operatorId, value } = req.body;
 
     const TARGET_NOMINAL = 12.0;
@@ -316,12 +527,19 @@ app.post('/api/measurements', (req, res) => {
     };
 
     db.measurementsDb.push(newRecord);
+    logAuditEvent(db, {
+        orgId: req.user.orgId,
+        actorId: req.user.id,
+        action: 'MEASUREMENT_CREATE',
+        entityType: 'measurement',
+        entityId: String(newRecord.id)
+    });
     writeDb(db);
     res.status(200).json(newRecord);
 });
 
-app.get('/api/measurements/latest', (_req, res) => {
-    const db = readDb();
+app.get('/api/measurements/latest', authMiddleware, requirePermission('PLAN_VIEW'), (req, res) => {
+    const db = req.db;
     const latest = db.measurementsDb[db.measurementsDb.length - 1] || null;
     res.json(latest);
 });
