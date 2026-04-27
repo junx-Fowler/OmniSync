@@ -601,21 +601,23 @@
                     <span id="right-panel-title" class="text-[#1C355E] font-black text-lg uppercase italic tracking-widest">Data Management</span>
                     <span id="active-plan-display" class="text-[10px] font-bold text-slate-500 uppercase">Catalog Selection</span>
                 </div>
-                <div class="flex items-center space-x-2">
+                <div class="flex flex-wrap items-center justify-end gap-2">
                     <span id="feature-count" class="text-[10px] bg-slate-800 text-white px-3 py-1 rounded-full font-bold uppercase tracking-widest shadow-inner">0 Features</span>
                     <input type="file" id="csv-import-input" accept=".csv,text/csv" multiple class="hidden" onchange="importExecuteCsv(event)">
                     <button id="import-csv-btn" onclick="document.getElementById('csv-import-input').click()" class="hidden bg-white border border-slate-300 text-[#1C355E] px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-50 transition-colors">Import CSV</button>
                     <button id="live-monitor-btn" onclick="toggleLiveMonitor()" class="hidden bg-white border border-slate-300 text-[#1C355E] px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-50 transition-colors">Live Monitor</button>
                     <span id="live-monitor-status" class="hidden text-[10px] bg-slate-100 text-slate-500 px-3 py-1 rounded-full font-bold uppercase tracking-widest border border-slate-200">Live Off</span>
                     <button id="del-record-btn" onclick="deleteCurrentRecord()" class="hidden bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-red-800 transition-colors">Delete Run</button>
+                    <button id="delete-selected-runs-btn" onclick="deleteSelectedRuns()" class="hidden bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-red-800 transition-colors">Delete Selected</button>
+                    <button id="delete-all-runs-btn" onclick="deleteAllRuns()" class="hidden bg-red-100 text-red-700 px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-red-200 transition-colors">Delete All</button>
                     <button id="exit-btn" onclick="exitToLibrary()" class="hidden bg-white border border-slate-400 text-slate-700 px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-100 transition-colors">Exit Job</button>
                 </div>
             </div>
 
-            <div id="plan-manager-bar" class="p-3 bg-slate-300 border-b flex space-x-2 shadow-inner">
+            <div id="plan-manager-bar" class="p-3 bg-slate-300 border-b flex flex-wrap gap-2 items-stretch shadow-inner">
                 <button onclick="createNewPlanUI()" class="bg-slate-500 text-white px-3 py-1.5 rounded-sm text-xs font-bold uppercase shadow hover:bg-slate-600">New</button>
                 <button onclick="duplicatePlanRevision()" class="bg-white text-[#1C355E] px-3 py-1.5 rounded-sm text-xs font-bold uppercase shadow hover:bg-slate-100">New Revision</button>
-                <input type="text" id="plan-name-input" oninput="syncPlanIdentityFromName()" class="flex-1 border rounded-sm px-2 text-sm font-bold uppercase italic focus:border-[#1C355E] outline-none" placeholder="Part Name">
+                <input type="text" id="plan-name-input" oninput="syncPlanIdentityFromName()" class="flex-1 min-w-[220px] border rounded-sm px-2 text-sm font-bold uppercase italic focus:border-[#1C355E] outline-none" placeholder="Part Name">
                 <input type="file" id="photo-upload" accept="image/*" class="hidden" onchange="handlePhotoUpload(event)">
                 <input type="file" id="plan-csv-import-input" accept=".csv,text/csv" class="hidden" onchange="importPlanFromScanCsv(event)">
                 <button onclick="document.getElementById('photo-upload').click()" class="bg-white border px-2 rounded-sm" id="photo-btn-icon" title="Upload Thumbnail">📷</button>
@@ -850,6 +852,7 @@
             featureId: 'ALL',
             timeWindow: 'ALL'
         };
+        let selectedRunIds = new Set();
         let liveMonitorState = {
             active: false,
             directoryHandle: null,
@@ -1454,6 +1457,67 @@
 
         function getSupervisorHistory() {
             return JSON.parse(localStorage.getItem(`omnisync_data_${currentPlanName}`) || '[]');
+        }
+
+        function updateSupervisorBulkActionButtons() {
+            const deleteSelectedBtn = document.getElementById('delete-selected-runs-btn');
+            const deleteAllBtn = document.getElementById('delete-all-runs-btn');
+            if (!deleteSelectedBtn || !deleteAllBtn) return;
+            const visible = mode === 'SUPERVISOR' && !!currentPlanName;
+            deleteSelectedBtn.classList.toggle('hidden', !visible);
+            deleteAllBtn.classList.toggle('hidden', !visible);
+            if (!visible) return;
+            deleteSelectedBtn.disabled = selectedRunIds.size === 0;
+            deleteSelectedBtn.classList.toggle('opacity-50', selectedRunIds.size === 0);
+            deleteSelectedBtn.classList.toggle('cursor-not-allowed', selectedRunIds.size === 0);
+            deleteSelectedBtn.innerText = selectedRunIds.size ? `Delete Selected (${selectedRunIds.size})` : 'Delete Selected';
+        }
+
+        function toggleRunSelection(runId, checked) {
+            const key = Number(runId);
+            if (checked) selectedRunIds.add(key);
+            else selectedRunIds.delete(key);
+            updateSupervisorBulkActionButtons();
+            if (mode === 'SUPERVISOR') renderDashboard();
+        }
+
+        function toggleSelectAllVisibleRuns(checked, runIds) {
+            (runIds || []).forEach(id => {
+                const key = Number(id);
+                if (checked) selectedRunIds.add(key);
+                else selectedRunIds.delete(key);
+            });
+            updateSupervisorBulkActionButtons();
+            renderDashboard();
+        }
+
+        function deleteSelectedRuns() {
+            if (!currentPlanName || !selectedRunIds.size) return;
+            const ids = Array.from(selectedRunIds);
+            if (!confirm(`Delete ${ids.length} selected run${ids.length === 1 ? '' : 's'}?`)) return;
+            let history = getSupervisorHistory();
+            history = history.filter(record => !selectedRunIds.has(Number(record.id)));
+            localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(history));
+            if (viewingPart && selectedRunIds.has(Number(viewingPart.id))) viewingPart = null;
+            recordAuditEvent('RUN_DELETE_BULK', 'inspection-run', currentPlanName, { count: ids.length, runIds: ids });
+            selectedRunIds.clear();
+            document.getElementById('del-record-btn').classList.add('hidden');
+            renderDashboard();
+            renderApp();
+        }
+
+        function deleteAllRuns() {
+            if (!currentPlanName) return;
+            const history = getSupervisorHistory();
+            if (!history.length) return;
+            if (!confirm(`Delete all ${history.length} run${history.length === 1 ? '' : 's'} for ${currentPlanName}?`)) return;
+            localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify([]));
+            viewingPart = null;
+            selectedRunIds.clear();
+            recordAuditEvent('RUN_DELETE_ALL', 'inspection-run', currentPlanName, { count: history.length });
+            document.getElementById('del-record-btn').classList.add('hidden');
+            renderDashboard();
+            renderApp();
         }
 
         function resetSupervisorFilters() {
@@ -3423,7 +3487,7 @@
             settingsOpen = false;
             instrumentsOpen = false;
             reportBuilderOpen = false;
-            ['blueprint-wrapper','dashboard-overlay','plan-manager-bar','plan-metadata-bar','plan-status-bar','execution-action-bar','inline-trend-container','exit-btn','del-record-btn','import-csv-btn','live-monitor-btn','live-monitor-status','plan-library-view','pdf-container','upload-prompt','pdf-toolbar','settings-view','quality-view','instruments-view','report-builder-view','historical-run-summary'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            ['blueprint-wrapper','dashboard-overlay','plan-manager-bar','plan-metadata-bar','plan-status-bar','execution-action-bar','inline-trend-container','exit-btn','del-record-btn','import-csv-btn','live-monitor-btn','live-monitor-status','delete-selected-runs-btn','delete-all-runs-btn','plan-library-view','pdf-container','upload-prompt','pdf-toolbar','settings-view','quality-view','instruments-view','report-builder-view','historical-run-summary'].forEach(id => document.getElementById(id).classList.add('hidden'));
             const historicalSummary = document.getElementById('historical-run-summary');
             if (historicalSummary) historicalSummary.innerHTML = '';
             const blueprintWrapper = document.getElementById('blueprint-wrapper');
@@ -3479,6 +3543,8 @@
                     document.getElementById('import-csv-btn').classList.remove('hidden');
                     document.getElementById('live-monitor-btn').classList.remove('hidden');
                     document.getElementById('live-monitor-status').classList.remove('hidden');
+                    document.getElementById('delete-selected-runs-btn').classList.remove('hidden');
+                    document.getElementById('delete-all-runs-btn').classList.remove('hidden');
                     document.getElementById('right-panel-title').innerText = "Data Monitoring";
                     document.getElementById('ai-scan-btn').classList.add('hidden');
                     
@@ -3509,10 +3575,12 @@
                     stopLiveMonitor();
                 }
                 updateLiveMonitorUi();
+                updateSupervisorBulkActionButtons();
                 if (currentPdfDataUrl && !['SUPERVISOR','QUALITY'].includes(mode)) document.getElementById('pdf-container').classList.remove('hidden');
             } else {
                 if (liveMonitorState.active) stopLiveMonitor();
                 updateLiveMonitorUi();
+                updateSupervisorBulkActionButtons();
                 renderLibrary();
                 document.getElementById('blueprint-wrapper').classList.remove('hidden');
                 document.getElementById('plan-library-view').classList.remove('hidden');
@@ -3761,6 +3829,7 @@
             if (liveMonitorState.active && liveMonitorState.planName && liveMonitorState.planName !== plan?.name) {
                 stopLiveMonitor();
             }
+            selectedRunIds.clear();
             features = (plan.features || []).map(normalizeFeatureRecord); currentPlanName = plan.name; currentPartPhotoUrl = plan.partPhotoUrl;
             currentPlanMetadata = normalizePlanMetadata(plan.metadata);
             editingRecordId = null;
@@ -5485,6 +5554,7 @@
             const hist = getSupervisorHistory();
             populateSupervisorFilterControls(hist);
             const filteredHist = filterSupervisorHistory(hist);
+            selectedRunIds = new Set(Array.from(selectedRunIds).filter(id => filteredHist.some(record => Number(record.id) === Number(id))));
             if (viewingPart && !filteredHist.some(record => record.id === viewingPart.id)) {
                 viewingPart = null;
                 document.getElementById('del-record-btn').classList.add('hidden');
@@ -5494,18 +5564,31 @@
             document.getElementById('kpi-passed').innerText = pass;
             document.getElementById('kpi-defects').innerText = filteredHist.length - pass;
             document.getElementById('kpi-yield').innerText = filteredHist.length ? Math.round((pass/filteredHist.length)*100) + '%' : '0%';
-            document.getElementById('live-feed-table').innerHTML = filteredHist.length ? filteredHist.slice(-50).reverse().map(p => {
+            const visibleRuns = filteredHist.slice(-50).reverse();
+            const allVisibleSelected = visibleRuns.length > 0 && visibleRuns.every(record => selectedRunIds.has(Number(record.id)));
+            document.getElementById('live-feed-table').innerHTML = visibleRuns.length ? `
+                <tr class="border-b bg-slate-50">
+                    <td class="p-3 w-10 text-center"><input type="checkbox" ${allVisibleSelected ? 'checked' : ''} onchange="toggleSelectAllVisibleRuns(this.checked, [${visibleRuns.map(record => Number(record.id)).join(',')}])"></td>
+                    <td class="p-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Timestamp</td>
+                    <td class="p-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Inspector</td>
+                    <td class="p-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">Status</td>
+                </tr>
+            ` + visibleRuns.map(p => {
                 const inspector = escapeHtml(p.inspector || p.operator || 'Unassigned');
                 const statusClass = p.status === 'PASS' ? 'text-green-600' : p.status === 'FAIL' ? 'text-red-600' : 'text-amber-600';
                 const noteBadge = p.note ? '<span class="ml-2 text-[9px] bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded-full font-bold uppercase tracking-widest">Note</span>' : '';
-                return `<tr class="border-b hover:bg-blue-50" onclick="viewHistoricalPart(${p.id})">
+                const selectedClass = selectedRunIds.has(Number(p.id)) ? 'bg-blue-50' : 'hover:bg-blue-50';
+                const viewingClass = viewingPart?.id === p.id ? ' ring-2 ring-inset ring-blue-300' : '';
+                return `<tr class="border-b ${selectedClass}${viewingClass}" onclick="viewHistoricalPart(${p.id})">
+                    <td class="p-3 text-center" onclick="event.stopPropagation()"><input type="checkbox" ${selectedRunIds.has(Number(p.id)) ? 'checked' : ''} onchange="toggleRunSelection(${Number(p.id)}, this.checked)"></td>
                     <td class="p-3 text-slate-500 font-mono text-xs">${p.time}</td>
                     <td class="p-3 font-black text-[#1C355E]">${inspector}${noteBadge}</td>
                     <td class="p-4 font-black text-xs ${statusClass}">${p.status}</td>
                 </tr>`;
-            }).join('') : `<tr><td colspan="3" class="p-8 text-center text-[11px] font-bold uppercase tracking-widest text-slate-500">No runs match the active filters</td></tr>`;
+            }).join('') : `<tr><td colspan="4" class="p-8 text-center text-[11px] font-bold uppercase tracking-widest text-slate-500">No runs match the active filters</td></tr>`;
             renderSupervisorSummaries(filteredHist);
             renderHistoricalRunSummary();
+            updateSupervisorBulkActionButtons();
         }
 
         function viewHistoricalPart(id) { 
@@ -5524,7 +5607,7 @@
             renderTrendChart();
         }
         
-        function deleteCurrentRecord() { if (!viewingPart || !confirm("Delete record?")) return; let h = JSON.parse(localStorage.getItem(`omnisync_data_${currentPlanName}`) || '[]'); h = h.filter(p => p.id !== viewingPart.id); localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(h)); viewingPart = null; document.getElementById('del-record-btn').classList.add('hidden'); renderDashboard(); renderApp(); }
+        function deleteCurrentRecord() { if (!viewingPart || !confirm("Delete record?")) return; const deletedId = Number(viewingPart.id); let h = JSON.parse(localStorage.getItem(`omnisync_data_${currentPlanName}`) || '[]'); h = h.filter(p => p.id !== viewingPart.id); localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(h)); selectedRunIds.delete(deletedId); recordAuditEvent('RUN_DELETE', 'inspection-run', `${currentPlanName}:${deletedId}`, {}); viewingPart = null; document.getElementById('del-record-btn').classList.add('hidden'); renderDashboard(); renderApp(); }
 
         // --- EXACT ORIGINAL YOUR UPLOAD LOGIC ---
         async function handleFileUpload(event) {
@@ -7157,6 +7240,7 @@
 
         function exitToLibrary() {
             if (liveMonitorState.active) stopLiveMonitor();
+            selectedRunIds.clear();
             currentPlanName = "";
             features = [];
             pdfDoc = null;
