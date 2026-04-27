@@ -605,6 +605,8 @@
                     <span id="feature-count" class="text-[10px] bg-slate-800 text-white px-3 py-1 rounded-full font-bold uppercase tracking-widest shadow-inner">0 Features</span>
                     <input type="file" id="csv-import-input" accept=".csv,text/csv" multiple class="hidden" onchange="importExecuteCsv(event)">
                     <button id="import-csv-btn" onclick="document.getElementById('csv-import-input').click()" class="hidden bg-white border border-slate-300 text-[#1C355E] px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-50 transition-colors">Import CSV</button>
+                    <button id="live-monitor-btn" onclick="toggleLiveMonitor()" class="hidden bg-white border border-slate-300 text-[#1C355E] px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-50 transition-colors">Live Monitor</button>
+                    <span id="live-monitor-status" class="hidden text-[10px] bg-slate-100 text-slate-500 px-3 py-1 rounded-full font-bold uppercase tracking-widest border border-slate-200">Live Off</span>
                     <button id="del-record-btn" onclick="deleteCurrentRecord()" class="hidden bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-red-800 transition-colors">Delete Run</button>
                     <button id="exit-btn" onclick="exitToLibrary()" class="hidden bg-white border border-slate-400 text-slate-700 px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-100 transition-colors">Exit Job</button>
                 </div>
@@ -615,8 +617,10 @@
                 <button onclick="duplicatePlanRevision()" class="bg-white text-[#1C355E] px-3 py-1.5 rounded-sm text-xs font-bold uppercase shadow hover:bg-slate-100">New Revision</button>
                 <input type="text" id="plan-name-input" oninput="syncPlanIdentityFromName()" class="flex-1 border rounded-sm px-2 text-sm font-bold uppercase italic focus:border-[#1C355E] outline-none" placeholder="Part Name">
                 <input type="file" id="photo-upload" accept="image/*" class="hidden" onchange="handlePhotoUpload(event)">
+                <input type="file" id="plan-csv-import-input" accept=".csv,text/csv" class="hidden" onchange="importPlanFromScanCsv(event)">
                 <button onclick="document.getElementById('photo-upload').click()" class="bg-white border px-2 rounded-sm" id="photo-btn-icon" title="Upload Thumbnail">📷</button>
                 
+                <button onclick="document.getElementById('plan-csv-import-input').click()" class="bg-white text-[#1C355E] px-3 py-1.5 rounded-sm text-xs font-bold uppercase shadow hover:bg-slate-100">Import SCAN CSV</button>
                 <button id="ai-scan-btn" onclick="startAIScanSelection()" class="hidden bg-purple-600 text-white px-3 py-1.5 rounded-sm text-xs font-bold uppercase shadow hover:bg-purple-700 flex items-center transition-colors" title="Select an area to auto-extract dimensions">
                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> AI Scan
                 </button>
@@ -754,6 +758,7 @@
         const defaultDataSourceProfiles = [
             { id: 'profile-generic-csv', name: 'Generic Characteristic CSV', provider: 'Generic', format: 'CSV', parseMode: 'column-based', featureMatch: 'ID + Name', active: true, notes: 'Use for one-row-per-part exports with feature columns.' },
             { id: 'profile-aberlink-rows', name: 'Aberlink Feature Rows', provider: 'Aberlink', format: 'CSV', parseMode: 'row-based', featureMatch: 'ID + Name', active: true, notes: 'Use for exports where each feature is one row and measured value is in column 7.' },
+            { id: 'profile-sylvac-scan-program', name: 'Sylvac SCAN Program CSV', provider: 'Sylvac SCAN', format: 'CSV', parseMode: 'column-based', featureMatch: 'SCAN Code + Header', active: true, notes: 'Use for SCAN program exports where row 2 contains Date, Time, and feature columns and row 3 onward contains measured parts.' },
             { id: 'profile-scan-batch', name: 'SCAN Batch Import', provider: 'Sylvac SCAN', format: 'CSV', parseMode: 'column-based', featureMatch: 'Name', active: true, notes: 'Use for batch files exported from optical or scanner workflows.' }
         ];
 
@@ -844,6 +849,15 @@
             tool: 'ALL',
             featureId: 'ALL',
             timeWindow: 'ALL'
+        };
+        let liveMonitorState = {
+            active: false,
+            directoryHandle: null,
+            timer: null,
+            pollMs: 8000,
+            processedFiles: {},
+            planName: '',
+            lastImportAt: null
         };
 
         function isCloudSyncKey(key) {
@@ -1275,6 +1289,7 @@
             const method = feature?.sourceTrace?.method || '';
             if (method === 'ai-scan') return 'AI Scan';
             if (method === 'manual-ocr') return 'Manual OCR';
+            if (method === 'scan-plan-import') return 'SCAN Import';
             return 'Drawing Source';
         }
 
@@ -3408,7 +3423,7 @@
             settingsOpen = false;
             instrumentsOpen = false;
             reportBuilderOpen = false;
-            ['blueprint-wrapper','dashboard-overlay','plan-manager-bar','plan-metadata-bar','plan-status-bar','execution-action-bar','inline-trend-container','exit-btn','del-record-btn','import-csv-btn','plan-library-view','pdf-container','upload-prompt','pdf-toolbar','settings-view','quality-view','instruments-view','report-builder-view','historical-run-summary'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            ['blueprint-wrapper','dashboard-overlay','plan-manager-bar','plan-metadata-bar','plan-status-bar','execution-action-bar','inline-trend-container','exit-btn','del-record-btn','import-csv-btn','live-monitor-btn','live-monitor-status','plan-library-view','pdf-container','upload-prompt','pdf-toolbar','settings-view','quality-view','instruments-view','report-builder-view','historical-run-summary'].forEach(id => document.getElementById(id).classList.add('hidden'));
             const historicalSummary = document.getElementById('historical-run-summary');
             if (historicalSummary) historicalSummary.innerHTML = '';
             const blueprintWrapper = document.getElementById('blueprint-wrapper');
@@ -3448,6 +3463,8 @@
                 } else if (mode === 'EXECUTE') {
                     document.getElementById('execution-action-bar').classList.remove('hidden');
                     document.getElementById('import-csv-btn').classList.remove('hidden');
+                    document.getElementById('live-monitor-btn').classList.remove('hidden');
+                    document.getElementById('live-monitor-status').classList.remove('hidden');
                     document.getElementById('right-panel-title').innerText = "Measurement Entry";
                     document.getElementById('ai-scan-btn').classList.add('hidden');
                     populateInspectorSelect();
@@ -3459,6 +3476,9 @@
                     autoSelectFeature();
                 } else if (mode === 'SUPERVISOR') {
                     document.getElementById('dashboard-overlay').classList.remove('hidden');
+                    document.getElementById('import-csv-btn').classList.remove('hidden');
+                    document.getElementById('live-monitor-btn').classList.remove('hidden');
+                    document.getElementById('live-monitor-status').classList.remove('hidden');
                     document.getElementById('right-panel-title').innerText = "Data Monitoring";
                     document.getElementById('ai-scan-btn').classList.add('hidden');
                     
@@ -3485,8 +3505,14 @@
                     if (rightPanel) rightPanel.classList.add('hidden');
                     renderQualityPage();
                 }
+                if (!['EXECUTE', 'SUPERVISOR'].includes(mode) && liveMonitorState.active) {
+                    stopLiveMonitor();
+                }
+                updateLiveMonitorUi();
                 if (currentPdfDataUrl && !['SUPERVISOR','QUALITY'].includes(mode)) document.getElementById('pdf-container').classList.remove('hidden');
             } else {
+                if (liveMonitorState.active) stopLiveMonitor();
+                updateLiveMonitorUi();
                 renderLibrary();
                 document.getElementById('blueprint-wrapper').classList.remove('hidden');
                 document.getElementById('plan-library-view').classList.remove('hidden');
@@ -3732,6 +3758,9 @@
 
         async function loadPlan(index) {
             const plan = JSON.parse(localStorage.getItem('omnisync_plans') || '[]')[index];
+            if (liveMonitorState.active && liveMonitorState.planName && liveMonitorState.planName !== plan?.name) {
+                stopLiveMonitor();
+            }
             features = (plan.features || []).map(normalizeFeatureRecord); currentPlanName = plan.name; currentPartPhotoUrl = plan.partPhotoUrl;
             currentPlanMetadata = normalizePlanMetadata(plan.metadata);
             editingRecordId = null;
@@ -4370,6 +4399,83 @@
                 .replace(/[^\w]/g, '');
         }
 
+        function parseScanFeatureHeader(header, index = 0) {
+            const raw = `${header || ''}`.trim().replace(/,+$/, '');
+            const match = raw.match(/^([A-Z]{1,4}\d{2})[\s\-]*(.*)$/i);
+            const code = (match?.[1] || `F${index + 1}`).toUpperCase();
+            const label = (match?.[2] || raw || `Feature ${index + 1}`)
+                .replace(/\s+/g, ' ')
+                .trim();
+            return {
+                code,
+                raw,
+                label,
+                name: label ? `${code} - ${label}` : code,
+                type: inferScanFeatureType(code, label)
+            };
+        }
+
+        function inferScanFeatureType(code, label = '') {
+            const token = `${code} ${label}`.toUpperCase();
+            if (token.includes('ANGLE') || code.startsWith('LA') || code.startsWith('RA')) return 'Angle';
+            if (token.includes('RUNOUT') || code.startsWith('TR')) return 'Linear';
+            if (token.includes('PITCH') && !token.includes('DIAMETER')) return 'Thread';
+            if (token.includes('MAJOR DIAMETER') || token.includes('MINOR DIAMETER') || token.includes('PITCH DIAMETER')) return 'Diameter';
+            if (token.includes('DIAMETER') || code.startsWith('D') || code.startsWith('MJ') || code.startsWith('MN') || code.startsWith('PD')) return 'Diameter';
+            return 'Linear';
+        }
+
+        function canonicalScanCode(value) {
+            const raw = `${value || ''}`.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const match = raw.match(/^([A-Z]{1,4})([A-Z0-9]{2,})$/);
+            if (!match) return raw;
+            return `${match[1]}${match[2].replace(/O/g, '0')}`;
+        }
+
+        function parseScanDateTime(dateText, timeText) {
+            const date = `${dateText || ''}`.trim();
+            const time = `${timeText || ''}`.trim();
+            const dateMatch = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+            const timeMatch = time.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+            if (!dateMatch || !timeMatch) {
+                const fallback = `${date} ${time}`.trim();
+                return { key: fallback, display: fallback, epochMs: NaN };
+            }
+            let year = Number(dateMatch[3]);
+            if (year < 100) year += 2000;
+            const month = Number(dateMatch[2]) - 1;
+            const day = Number(dateMatch[1]);
+            const hour = Number(timeMatch[1]);
+            const minute = Number(timeMatch[2]);
+            const second = Number(timeMatch[3] || 0);
+            const epochMs = new Date(year, month, day, hour, minute, second).getTime();
+            const display = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`;
+            return {
+                key: display,
+                display,
+                epochMs
+            };
+        }
+
+        function isScanProgramCsv(rows) {
+            if (!Array.isArray(rows) || rows.length < 3) return false;
+            const secondRow = rows[1] || [];
+            return normalizeCsvHeader(secondRow[0] || '') === 'date' && normalizeCsvHeader(secondRow[1] || '') === 'time';
+        }
+
+        function getScanProgramDefinition(rows) {
+            if (!isScanProgramCsv(rows)) return null;
+            const programRow = rows[0] || [];
+            const headerRow = rows[1] || [];
+            const featureHeaders = headerRow.slice(2).filter(cell => `${cell || ''}`.trim() !== '');
+            return {
+                programName: `${programRow[0] || ''}`.trim(),
+                sourceName: `${programRow[1] || ''}`.trim(),
+                featureHeaders,
+                features: featureHeaders.map((header, index) => parseScanFeatureHeader(header, index))
+            };
+        }
+
         function buildImportFeatureColumnMap() {
             const map = new Map();
             features.forEach(feature => {
@@ -4377,7 +4483,9 @@
                     `${feature.id}`,
                     `f${feature.id}`,
                     `feature${feature.id}`,
+                    canonicalScanCode(feature.scanCode || ''),
                     normalizeCsvHeader(feature.name || ''),
+                    normalizeCsvHeader(feature.scanHeader || ''),
                     normalizeCsvHeader(`${feature.id}${feature.name || ''}`)
                 ];
                 keys.filter(Boolean).forEach(key => map.set(key, feature));
@@ -4388,6 +4496,12 @@
         function detectImportProfile(rows) {
             const profiles = getDataSourceProfiles().filter(profile => profile.active !== false);
             if (!rows?.length) return profiles[0] || null;
+            if (isScanProgramCsv(rows)) {
+                return profiles.find(profile => `${profile.name || ''}`.toLowerCase().includes('scan program'))
+                    || profiles.find(profile => `${profile.provider || ''}`.toLowerCase().includes('sylvac scan'))
+                    || profiles[0]
+                    || null;
+            }
             if (isRowBasedInspectionCsv(rows)) {
                 return profiles.find(profile => `${profile.parseMode || ''}`.toLowerCase() === 'row-based')
                     || profiles.find(profile => `${profile.provider || ''}`.toLowerCase().includes('aberlink'))
@@ -4400,6 +4514,132 @@
                 const notes = `${profile.notes || ''}`.toLowerCase();
                 return provider.includes('scan') || provider.includes('generic') || notes.includes('column') || headerText.includes('feature');
             }) || profiles[0] || null;
+        }
+
+        function buildScanGridPosition(index, total) {
+            const columns = Math.max(1, Math.min(4, total || 1));
+            const column = index % columns;
+            const row = Math.floor(index / columns);
+            return {
+                x: 16 + (column * (70 / Math.max(1, columns - 1 || 1))),
+                y: 18 + (row * 18)
+            };
+        }
+
+        function normalizeScanNumericValue(value) {
+            const normalized = normalizeNumericToken(`${value || ''}`.replace(/,/g, '.'));
+            const match = normalized.match(/[-+]?\d+(?:\.\d+)?/);
+            return match ? match[0] : '';
+        }
+
+        function isNumericScanToken(value) {
+            return !!normalizeScanNumericValue(value);
+        }
+
+        function mergeBboxes(a, b) {
+            if (!a) return b || null;
+            if (!b) return a || null;
+            return {
+                x0: Math.min(a.x0, b.x0),
+                y0: Math.min(a.y0, b.y0),
+                x1: Math.max(a.x1, b.x1),
+                y1: Math.max(a.y1, b.y1)
+            };
+        }
+
+        async function extractScanDrawingHints(scanDefinitions) {
+            if (!currentPdfDataUrl || !Array.isArray(scanDefinitions) || !scanDefinitions.length) return new Map();
+            const canvas = document.getElementById('pdf-canvas');
+            if (!canvas || !canvas.width || !canvas.height) return new Map();
+
+            const processedCanvas = enhanceCanvasForOCR(canvas);
+            const scaleX = canvas.width / processedCanvas.width;
+            const scaleY = canvas.height / processedCanvas.height;
+            const result = await recognizeCanvasWithRetry(processedCanvas, { statusPrefix: 'Reading SCAN drawing' });
+            const words = (result.data.words || [])
+                .filter(word => (word.confidence || 0) >= 20 && (word.text || '').trim())
+                .map(word => ({
+                    rawText: (word.text || '').trim(),
+                    codeText: canonicalScanCode(word.text || ''),
+                    numericText: normalizeScanNumericValue(word.text || ''),
+                    bbox: {
+                        x0: word.bbox.x0 * scaleX,
+                        y0: word.bbox.y0 * scaleY,
+                        x1: word.bbox.x1 * scaleX,
+                        y1: word.bbox.y1 * scaleY
+                    },
+                    cx: ((word.bbox.x0 + word.bbox.x1) / 2) * scaleX,
+                    cy: ((word.bbox.y0 + word.bbox.y1) / 2) * scaleY,
+                    confidence: Math.max(0, Math.min(1, (word.confidence || 0) / 100))
+                }));
+
+            const hints = new Map();
+            scanDefinitions.forEach(definition => {
+                const codeWord = words
+                    .filter(word => word.codeText === definition.code)
+                    .sort((a, b) => b.confidence - a.confidence)[0];
+                if (!codeWord) return;
+
+                const numericWord = words
+                    .filter(word => word !== codeWord && isNumericScanToken(word.rawText))
+                    .map(word => {
+                        const dx = word.cx - codeWord.cx;
+                        const dy = word.cy - codeWord.cy;
+                        const distance = Math.hypot(dx, dy);
+                        const rightBias = dx >= -18 ? 0 : 60;
+                        const verticalBias = Math.abs(dy) <= 80 ? 0 : 80;
+                        return { word, score: distance + rightBias + verticalBias };
+                    })
+                    .filter(item => item.score < 260)
+                    .sort((a, b) => a.score - b.score)[0]?.word || null;
+
+                const rect = mergeBboxes(codeWord.bbox, numericWord?.bbox || null);
+                const nominal = numericWord ? normalizeScanNumericValue(numericWord.rawText) : '';
+                hints.set(definition.code, {
+                    x: Math.max(2, Math.min(98, (codeWord.cx / canvas.width) * 100)),
+                    y: Math.max(2, Math.min(98, (codeWord.cy / canvas.height) * 100)),
+                    nominal,
+                    confidence: numericWord ? Math.min(0.92, (codeWord.confidence + numericWord.confidence) / 2) : codeWord.confidence,
+                    sourceTrace: rect ? buildFeatureSourceTrace({
+                        left: rect.x0,
+                        top: rect.y0,
+                        width: Math.max(1, rect.x1 - rect.x0),
+                        height: Math.max(1, rect.y1 - rect.y0)
+                    }, {
+                        method: 'scan-plan-import',
+                        rawText: [definition.code, nominal].filter(Boolean).join(' '),
+                        confidence: numericWord ? Math.min(0.92, (codeWord.confidence + numericWord.confidence) / 2) : codeWord.confidence
+                    }) : null
+                });
+            });
+            return hints;
+        }
+
+        async function buildPlanFeaturesFromScanCsv(rows) {
+            const definition = getScanProgramDefinition(rows);
+            if (!definition) throw new Error('This file is not in the expected SCAN program CSV format.');
+            const hints = await extractScanDrawingHints(definition.features).catch(() => new Map());
+            return definition.features.map((featureDef, index) => {
+                const hint = hints.get(featureDef.code);
+                const fallback = buildScanGridPosition(index, definition.features.length);
+                return normalizeFeatureRecord({
+                    id: index + 1,
+                    scanCode: featureDef.code,
+                    scanHeader: featureDef.raw,
+                    name: featureDef.name,
+                    type: featureDef.type,
+                    description: `Imported from SCAN program ${definition.programName || 'Program'}${featureDef.label ? ` • ${featureDef.label}` : ''}`,
+                    x: hint?.x ?? fallback.x,
+                    y: hint?.y ?? fallback.y,
+                    nominal: hint?.nominal ? formatDimensionValue(Number(hint.nominal)) : '',
+                    upper: '',
+                    lower: '',
+                    actual: '',
+                    status: 'PENDING',
+                    confidence: hint?.confidence ?? null,
+                    sourceTrace: hint?.sourceTrace || null
+                });
+            });
         }
 
         function evaluateImportedMeasurement(specFeature, actualValue, toolUsed) {
@@ -4525,17 +4765,81 @@
             };
         }
 
-        async function importExecuteCsv(event) {
-            if (!currentPlanName || mode !== 'EXECUTE') {
-                event.target.value = '';
-                return alert('Open a released plan in Execute mode before importing CSV data.');
-            }
-            const files = Array.from(event.target.files || []);
-            if (!files.length) return;
+        function buildImportedRecordsFromScanRows(rows, fileName = '') {
+            const definition = getScanProgramDefinition(rows);
+            if (!definition) return [];
+            const inspectorOptions = getInspectorOptions();
+            const toolOptions = getToolOptions();
+            const featureMapByCode = new Map(features.map(feature => [canonicalScanCode(feature.scanCode || parseScanFeatureHeader(feature.name || '').code), feature]));
+            const featureMapByHeader = new Map(features.map(feature => [normalizeCsvHeader(feature.scanHeader || feature.name || ''), feature]));
+            const dataRows = rows.slice(2).filter(row => row.some(cell => `${cell || ''}`.trim() !== ''));
+            return dataRows.map((row, rowIndex) => {
+                const timestamp = parseScanDateTime(row[0], row[1]);
+                const measurements = features.map(feature => evaluateImportedMeasurement(feature, '', feature.toolUsed || toolOptions[0] || ''));
+                definition.features.forEach((featureDef, featureIndex) => {
+                    const matchedFeature = featureMapByCode.get(featureDef.code) || featureMapByHeader.get(normalizeCsvHeader(featureDef.raw));
+                    if (!matchedFeature) return;
+                    const measurementIndex = measurements.findIndex(item => item.id === matchedFeature.id);
+                    if (measurementIndex === -1) return;
+                    const value = `${row[featureIndex + 2] || ''}`.trim();
+                    measurements[measurementIndex] = evaluateImportedMeasurement(matchedFeature, value, measurements[measurementIndex].toolUsed || toolOptions[0] || '');
+                });
+                const hasFail = measurements.some(measurement => measurement.status === 'FAIL');
+                const hasSkip = measurements.some(measurement => measurement.status === 'SKIP');
+                const epochMs = Number.isFinite(timestamp.epochMs) ? timestamp.epochMs + rowIndex : (Date.now() + rowIndex);
+                return {
+                    id: epochMs,
+                    time: timestamp.display || new Date(epochMs).toLocaleString(),
+                    timestampKey: timestamp.key || `${row[0] || ''} ${row[1] || ''}`.trim(),
+                    operator: document.getElementById('inspector-select')?.value || inspectorOptions[0] || 'SCAN Import',
+                    inspector: document.getElementById('inspector-select')?.value || inspectorOptions[0] || 'SCAN Import',
+                    note: fileName ? `Imported from ${fileName}` : '',
+                    context: { ...defaultExecutionContext },
+                    sourceProfile: 'Sylvac SCAN Program CSV',
+                    status: hasFail ? 'FAIL' : hasSkip ? 'INCOMPLETE' : 'PASS',
+                    measurements
+                };
+            });
+        }
 
+        function mergeImportedRecordsIntoHistory(history, incomingRecords, options = {}) {
+            const dedupeExactTimestamp = options.dedupeExactTimestamp !== false;
+            const existingTimestampKeys = new Set(history.map(record => (record.timestampKey || '').trim()).filter(Boolean));
+            const batchTimestampKeys = new Set();
+            const addedRecords = [];
+            let skippedDuplicates = 0;
+
+            incomingRecords.forEach(record => {
+                const timestampKey = (record.timestampKey || '').trim();
+                if (dedupeExactTimestamp && timestampKey) {
+                    if (existingTimestampKeys.has(timestampKey) || batchTimestampKeys.has(timestampKey)) {
+                        skippedDuplicates += 1;
+                        return;
+                    }
+                    existingTimestampKeys.add(timestampKey);
+                    batchTimestampKeys.add(timestampKey);
+                }
+                addedRecords.push(record);
+            });
+
+            return {
+                history: history.concat(addedRecords),
+                addedRecords,
+                skippedDuplicates
+            };
+        }
+
+        async function importExecuteCsvFiles(files, options = {}) {
+            const { silent = false, source = 'manual-import' } = options;
+            if (!currentPlanName || !['EXECUTE', 'SUPERVISOR'].includes(mode)) {
+                if (!silent) alert('Open a released plan in Execute or Supervisor mode before importing CSV data.');
+                return { added: 0, skippedDuplicates: 0, files: 0 };
+            }
+            const fileList = Array.from(files || []);
+            if (!fileList.length) return { added: 0, skippedDuplicates: 0, files: 0 };
             const importedRecords = [];
             const matchedProfiles = [];
-            for (const [fileIndex, file] of files.entries()) {
+            for (const [fileIndex, file] of fileList.entries()) {
                 const text = await file.text();
                 const rows = parseCsvText(text);
                 if (rows.length < 2) {
@@ -4543,6 +4847,15 @@
                 }
                 const matchedProfile = detectImportProfile(rows);
                 if (matchedProfile?.name) matchedProfiles.push(matchedProfile.name);
+
+                if (isScanProgramCsv(rows)) {
+                    const scanRecords = buildImportedRecordsFromScanRows(rows, file.name);
+                    if (scanRecords.length) {
+                        matchedProfiles.push('Sylvac SCAN Program CSV');
+                        importedRecords.push(...scanRecords);
+                    }
+                    continue;
+                }
 
                 const headers = rows[0];
                 const dataRows = rows.slice(1).filter(row => row.some(cell => `${cell || ''}`.trim() !== ''));
@@ -4560,23 +4873,151 @@
             }
 
             if (!importedRecords.length) {
-                event.target.value = '';
-                return alert('No valid inspection records were found in the selected CSV files.');
+                if (!silent) alert('No valid inspection records were found in the selected CSV files.');
+                return { added: 0, skippedDuplicates: 0, files: fileList.length };
             }
 
             const history = getSupervisorHistory();
-            localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(history.concat(importedRecords)));
+            const mergeResult = mergeImportedRecordsIntoHistory(history, importedRecords, { dedupeExactTimestamp: true });
+            localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(mergeResult.history));
             recordAuditEvent('CSV_IMPORT', 'run-history', currentPlanName, {
-                files: files.map(file => file.name),
-                importedRecords: importedRecords.length,
+                source,
+                files: fileList.map(file => file.name),
+                importedRecords: mergeResult.addedRecords.length,
+                skippedDuplicates: mergeResult.skippedDuplicates,
                 profiles: Array.from(new Set(matchedProfiles))
             });
 
             populateExecuteRecordSelect();
             updateCurrentPartId();
             if (mode === 'SUPERVISOR') renderDashboard();
-            event.target.value = '';
-            alert(`Imported ${importedRecords.length} inspection record${importedRecords.length === 1 ? '' : 's'} from ${files.length} CSV file${files.length === 1 ? '' : 's'}.`);
+            if (mode === 'EXECUTE') renderApp();
+            if (!silent) {
+                const duplicateMessage = mergeResult.skippedDuplicates ? ` Skipped ${mergeResult.skippedDuplicates} duplicate timestamp${mergeResult.skippedDuplicates === 1 ? '' : 's'}.` : '';
+                alert(`Imported ${mergeResult.addedRecords.length} inspection record${mergeResult.addedRecords.length === 1 ? '' : 's'} from ${fileList.length} CSV file${fileList.length === 1 ? '' : 's'}.${duplicateMessage}`);
+            }
+            return {
+                added: mergeResult.addedRecords.length,
+                skippedDuplicates: mergeResult.skippedDuplicates,
+                files: fileList.length
+            };
+        }
+
+        async function importExecuteCsv(event) {
+            const files = Array.from(event.target.files || []);
+            try {
+                await importExecuteCsvFiles(files, { silent: false, source: 'manual-import' });
+            } finally {
+                event.target.value = '';
+            }
+        }
+
+        function updateLiveMonitorUi() {
+            const button = document.getElementById('live-monitor-btn');
+            const badge = document.getElementById('live-monitor-status');
+            if (!button || !badge) return;
+            const visible = ['EXECUTE', 'SUPERVISOR'].includes(mode) && !!currentPlanName;
+            button.classList.toggle('hidden', !visible);
+            badge.classList.toggle('hidden', !visible);
+            if (!visible) return;
+
+            if (liveMonitorState.active) {
+                button.innerText = 'Stop Live';
+                button.classList.remove('bg-white', 'text-[#1C355E]', 'border-slate-300');
+                button.classList.add('bg-emerald-600', 'text-white', 'border-emerald-700');
+                const planScope = liveMonitorState.planName && liveMonitorState.planName !== currentPlanName ? ` (${liveMonitorState.planName})` : '';
+                badge.innerText = liveMonitorState.lastImportAt ? `Live On${planScope} • ${liveMonitorState.lastImportAt}` : `Live On${planScope}`;
+                badge.classList.remove('bg-slate-100', 'text-slate-500', 'border-slate-200');
+                badge.classList.add('bg-emerald-50', 'text-emerald-700', 'border-emerald-200');
+            } else {
+                button.innerText = 'Live Monitor';
+                button.classList.remove('bg-emerald-600', 'text-white', 'border-emerald-700');
+                button.classList.add('bg-white', 'text-[#1C355E]', 'border-slate-300');
+                badge.innerText = 'Live Off';
+                badge.classList.remove('bg-emerald-50', 'text-emerald-700', 'border-emerald-200');
+                badge.classList.add('bg-slate-100', 'text-slate-500', 'border-slate-200');
+            }
+        }
+
+        function stopLiveMonitor() {
+            const monitoredPlan = liveMonitorState.planName || currentPlanName || '';
+            if (liveMonitorState.timer) clearInterval(liveMonitorState.timer);
+            liveMonitorState = {
+                active: false,
+                directoryHandle: null,
+                timer: null,
+                pollMs: 8000,
+                processedFiles: {},
+                planName: '',
+                lastImportAt: null
+            };
+            if (monitoredPlan) {
+                recordAuditEvent('LIVE_MONITOR_STOP', 'run-history', monitoredPlan, {});
+            }
+            updateLiveMonitorUi();
+        }
+
+        async function pollLiveMonitorFolder() {
+            if (!liveMonitorState.active || !liveMonitorState.directoryHandle || !currentPlanName) return;
+            const filesToImport = [];
+            try {
+                for await (const entry of liveMonitorState.directoryHandle.values()) {
+                    if (entry.kind !== 'file' || !entry.name.toLowerCase().endsWith('.csv')) continue;
+                    const file = await entry.getFile();
+                    const signature = `${file.name}:${file.lastModified}:${file.size}`;
+                    if (liveMonitorState.processedFiles[file.name] === signature) continue;
+                    liveMonitorState.processedFiles[file.name] = signature;
+                    filesToImport.push(file);
+                }
+                if (!filesToImport.length) return;
+                const result = await importExecuteCsvFiles(filesToImport, { silent: true, source: 'live-monitor' });
+                if (result.added || result.skippedDuplicates) {
+                    liveMonitorState.lastImportAt = `${result.added} new / ${result.skippedDuplicates} skipped`;
+                    updateLiveMonitorUi();
+                }
+            } catch (error) {
+                console.error('Live monitor poll failed', error);
+                stopLiveMonitor();
+                alert('Live Monitor stopped because the selected folder could not be read anymore.');
+            }
+        }
+
+        async function toggleLiveMonitor() {
+            if (liveMonitorState.active) {
+                stopLiveMonitor();
+                return;
+            }
+            if (!currentPlanName || !['EXECUTE', 'SUPERVISOR'].includes(mode)) {
+                alert('Open a released plan in Execute or Supervisor mode before starting Live Monitor.');
+                return;
+            }
+            if (typeof window.showDirectoryPicker !== 'function') {
+                alert('Live Monitor requires a browser that supports local folder access, such as current Chromium-based desktop browsers.');
+                return;
+            }
+            try {
+                const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+                liveMonitorState = {
+                    active: true,
+                    directoryHandle,
+                    timer: null,
+                    pollMs: 8000,
+                    processedFiles: {},
+                    planName: currentPlanName,
+                    lastImportAt: 'Watching folder'
+                };
+                recordAuditEvent('LIVE_MONITOR_START', 'run-history', currentPlanName, { pollSeconds: Math.round(liveMonitorState.pollMs / 1000) });
+                updateLiveMonitorUi();
+                await pollLiveMonitorFolder();
+                liveMonitorState.timer = setInterval(() => {
+                    pollLiveMonitorFolder();
+                }, liveMonitorState.pollMs);
+            } catch (error) {
+                if (error?.name !== 'AbortError') {
+                    console.error('Live monitor start failed', error);
+                    alert('Could not start Live Monitor for the selected folder.');
+                }
+            }
         }
 
         function buildBreakdownRows(items, formatter) {
@@ -5128,6 +5569,58 @@
                 } catch (error) { alert("Could not render the drawing."); }
             };
             reader.readAsDataURL(file);
+        }
+
+        async function importPlanFromScanCsv(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                const rows = parseCsvText(text);
+                const definition = getScanProgramDefinition(rows);
+                if (!definition) {
+                    alert('This file does not match the supported SCAN program CSV format.');
+                    event.target.value = '';
+                    return;
+                }
+
+                const importedFeatures = await buildPlanFeaturesFromScanCsv(rows);
+                features = importedFeatures;
+                nextFeatureId = importedFeatures.length ? Math.max(...importedFeatures.map(feature => feature.id || 0)) + 1 : 1;
+                activeTrendId = importedFeatures[0]?.id || null;
+                viewingPart = null;
+                editingRecordId = null;
+
+                if (!currentPlanName) {
+                    currentPlanName = definition.programName || file.name.replace(/\.[^.]+$/, '');
+                    document.getElementById('plan-name-input').value = currentPlanName;
+                }
+                if (!currentPlanMetadata.partNumber) {
+                    currentPlanMetadata = {
+                        ...currentPlanMetadata,
+                        partNumber: currentPlanName || definition.programName || '',
+                        customer: currentPlanMetadata.customer || definition.sourceName || currentPlanMetadata.customer
+                    };
+                    populatePlanMetadataFields();
+                }
+
+                setMode('PLAN');
+                renderApp();
+                markPlanDirty();
+                recordAuditEvent('PLAN_IMPORT_SCAN', 'plan', currentPlanName || definition.programName || file.name, {
+                    fileName: file.name,
+                    programName: definition.programName,
+                    sourceName: definition.sourceName,
+                    featureCount: importedFeatures.length,
+                    usedDrawingHints: importedFeatures.filter(feature => !!feature.sourceTrace).length
+                });
+                alert(`Imported ${importedFeatures.length} SCAN features from ${file.name}.`);
+            } catch (error) {
+                console.error('SCAN plan import failed', error);
+                alert(error.message || 'Could not import the SCAN CSV into the plan.');
+            } finally {
+                event.target.value = '';
+            }
         }
 
         function createAIScanOverlay() {
@@ -6663,6 +7156,7 @@
         }
 
         function exitToLibrary() {
+            if (liveMonitorState.active) stopLiveMonitor();
             currentPlanName = "";
             features = [];
             pdfDoc = null;
