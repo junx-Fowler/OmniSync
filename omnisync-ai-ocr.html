@@ -99,7 +99,7 @@
             <div class="w-[55%] flex flex-col bg-white p-12 justify-center relative">
                 <h2 class="text-[#1C355E] text-2xl font-black mb-8 uppercase italic border-b-2 pb-4">Terminal Login</h2>
                 <div class="space-y-4">
-                    <input type="email" id="login-email" class="w-full border-2 p-3 rounded outline-none focus:border-[#1C355E]" value="Admin@fowlerprecision">
+                    <input type="email" id="login-email" class="w-full border-2 p-3 rounded outline-none focus:border-[#1C355E]" value="Supervisor@fowlerprecision.com">
                     <input type="password" id="login-password" class="w-full border-2 p-3 rounded outline-none focus:border-[#1C355E]" value="password">
                     <button onclick="executeLogin()" class="w-full bg-[#1C355E] text-white py-4 rounded font-bold uppercase mt-4 hover:bg-slate-800 transition-all shadow-lg tracking-widest">Enter System</button>
                 </div>
@@ -162,6 +162,9 @@
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 10.43 3.1V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
                     </svg>
                     SETTINGS
+                </button>
+                <button onclick="exitSystem()" id="btn-exit-system" class="flex flex-row items-center px-3 py-1.5 rounded-md text-sm font-bold text-red-200 hover:text-white bg-slate-800 border border-slate-700 transition-all whitespace-nowrap">
+                    EXIT
                 </button>
             <div class="bg-slate-800 p-1 rounded-lg flex space-x-1 border border-slate-700">
                 <button onclick="setMode('PLAN')" id="btn-mode-plan" class="flex flex-row items-center px-4 py-1.5 rounded-md text-sm font-bold text-slate-400 transition-all whitespace-nowrap">
@@ -238,6 +241,27 @@
                             <button onclick="addSettingItem('inspectors')" class="bg-[#1C355E] text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest">Add Inspector</button>
                         </div>
                         <div id="inspector-settings-list" class="space-y-3"></div>
+                    </div>
+                    <div id="user-management-section" class="bg-white rounded shadow border p-6 hidden">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-black text-[#1C355E] uppercase italic">User Management</h3>
+                            <button onclick="refreshUserManagement()" class="bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest">Refresh</button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                            <input id="user-mgmt-display-name" type="text" placeholder="Display Name" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] outline-none focus:border-[#1C355E] bg-white">
+                            <input id="user-mgmt-email" type="email" placeholder="Email" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] outline-none focus:border-[#1C355E] bg-white">
+                            <input id="user-mgmt-password" type="password" placeholder="Password" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] outline-none focus:border-[#1C355E] bg-white">
+                            <select id="user-mgmt-role" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] outline-none focus:border-[#1C355E] bg-white">
+                                <option value="operator">Operator (Execute)</option>
+                                <option value="planner">Planner (Plan)</option>
+                                <option value="supervisor">Supervisor (Full Access)</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center justify-between gap-3 mb-3">
+                            <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Supervisor can create users and assign access scope.</p>
+                            <button onclick="createManagedUser()" class="bg-[#1C355E] text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest">Add User</button>
+                        </div>
+                        <div id="user-management-list" class="space-y-2"></div>
                     </div>
                 </div>
             </div>
@@ -671,15 +695,51 @@
             machine: ''
         };
 
-        let mode = 'PLAN', userRole = 'admin', features = [], pdfDoc = null, currentPdfDataUrl = null, currentDrawingType = '', currentPlanName = "", currentPartPhotoUrl = null;
+        let mode = 'PLAN', userRole = 'supervisor', features = [], pdfDoc = null, currentPdfDataUrl = null, currentDrawingType = '', currentPlanName = "", currentPartPhotoUrl = null;
         let trendChart = null, activeTrendId = null, viewingPart = null, simInterval = null, nextFeatureId = 1;
         let currentPdfPage = 1, pdfZoom = 1, blueprintTool = 'select';
         let blueprintPointerState = null, balloonDragState = null;
         let aiScanSelectionActive = false;
+        const OCR_TIMEOUT_MS = 30000;
+        const OCR_MAX_RETRIES = 1;
+        const OCR_RETRY_DELAY_MS = 350;
+        const LOW_CONFIDENCE_THRESHOLD = 0.62;
         let currentChartType = 'trend';
         let settingsOpen = false;
         let instrumentsOpen = false;
         let reportBuilderOpen = false;
+        let managedUsers = [];
+        function normalizeUserRole(role) {
+            const normalized = (role || '').toString().trim().toLowerCase();
+            if (normalized === 'operator') return 'operator';
+            if (normalized === 'planner') return 'planner';
+            if (normalized === 'supervisor') return 'supervisor';
+            return 'admin';
+        }
+
+        function getRoleStartMode(role = userRole) {
+            const normalized = normalizeUserRole(role);
+            if (normalized === 'operator') return 'EXECUTE';
+            if (normalized === 'planner') return 'PLAN';
+            return 'PLAN';
+        }
+
+        function canAccessMode(modeName, role = userRole) {
+            const normalized = normalizeUserRole(role);
+            if (normalized === 'operator') return modeName === 'EXECUTE';
+            if (normalized === 'planner') return modeName === 'PLAN';
+            return ['PLAN', 'EXECUTE', 'SUPERVISOR', 'QUALITY'].includes(modeName);
+        }
+
+        function canAccessAdminModules(role = userRole) {
+            const normalized = normalizeUserRole(role);
+            return normalized === 'supervisor' || normalized === 'admin';
+        }
+
+        function canManageUsers(role = userRole) {
+            return canAccessAdminModules(role);
+        }
+
         let currentPlanMetadata = { ...defaultPlanMetadata };
         let planDirty = false;
         let lastPlanSavedAt = null;
@@ -805,7 +865,7 @@
                 const payload = await response.json();
                 cloudState.enabled = true;
                 cloudState.user = payload.user;
-                userRole = payload.user?.role === 'operator' ? 'operator' : 'admin';
+                userRole = normalizeUserRole(payload.user?.role);
                 await hydrateCloudSnapshot();
                 applyRoleAccess();
                 return true;
@@ -830,7 +890,7 @@
             updateLibrary();
             if (restored) {
                 hideLoginOverlayImmediately();
-                setMode(userRole === 'operator' ? 'EXECUTE' : 'PLAN');
+                setMode(getRoleStartMode(userRole));
             }
         };
 
@@ -890,11 +950,14 @@
             return {
                 ...safeFeature,
                 type: safeFeature.type || inferFeatureType(safeFeature),
+                confidence: Number.isFinite(safeFeature.confidence) ? Math.max(0, Math.min(1, safeFeature.confidence)) : null,
+                needsReview: !!safeFeature.needsReview,
                 sourceTrace: safeFeature.sourceTrace && safeFeature.sourceTrace.rect
                     ? {
                         page: safeFeature.sourceTrace.page || 1,
                         method: safeFeature.sourceTrace.method || 'drawing',
                         rawText: (safeFeature.sourceTrace.rawText || '').toString(),
+                        confidence: Number.isFinite(safeFeature.sourceTrace.confidence) ? Math.max(0, Math.min(1, safeFeature.sourceTrace.confidence)) : null,
                         rect: safeFeature.sourceTrace.rect
                     }
                     : null
@@ -922,6 +985,7 @@
                 page: currentPdfPage,
                 method: metadata.method || 'drawing',
                 rawText: (metadata.rawText || '').toString().trim(),
+                confidence: Number.isFinite(metadata.confidence) ? Math.max(0, Math.min(1, metadata.confidence)) : null,
                 rect: {
                     left: Math.max(0, Math.min(canvas.width, rect.left)),
                     top: Math.max(0, Math.min(canvas.height, rect.top)),
@@ -1945,6 +2009,8 @@
         function renderSettingsPage() {
             const inspectorListEl = document.getElementById('inspector-settings-list');
             if (!inspectorListEl) return;
+            const userSection = document.getElementById('user-management-section');
+            if (userSection) userSection.classList.toggle('hidden', !canManageUsers());
 
             const renderRows = (type, list) => {
                 return list.map((item, index) => `
@@ -1962,6 +2028,9 @@
 
             const inspectors = getInspectorOptions();
             inspectorListEl.innerHTML = inspectors.length ? renderRows('inspectors', inspectors) : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No inspectors configured</div>';
+            if (canManageUsers()) {
+                renderUserManagementList();
+            }
         }
 
         function formatCalibrationStatus(item) {
@@ -2348,8 +2417,8 @@
         }
 
         function openSettingsPage() {
-            if (userRole === 'operator') {
-                setMode('EXECUTE');
+            if (!canAccessAdminModules()) {
+                setMode(getRoleStartMode(userRole));
                 return;
             }
             settingsOpen = true;
@@ -2368,6 +2437,7 @@
             document.getElementById('instruments-view').classList.add('hidden');
             document.getElementById('report-builder-view').classList.add('hidden');
             document.getElementById('settings-view').classList.remove('hidden');
+            refreshUserManagement();
         }
 
         function closeSettingsPage() {
@@ -2377,7 +2447,7 @@
         }
 
         function openInstrumentsPage() {
-            if (userRole === 'operator') {
+            if (!canAccessAdminModules()) {
                 return;
             }
             instrumentsOpen = true;
@@ -2405,7 +2475,7 @@
         }
 
         function openReportBuilderPage() {
-            if (userRole === 'operator') {
+            if (!canAccessAdminModules()) {
                 return;
             }
             reportBuilderOpen = true;
@@ -2591,17 +2661,16 @@
         }
 
         function applyRoleAccess() {
-            const isOperator = userRole === 'operator';
             const settingsBtn = document.getElementById('btn-settings');
             const planBtn = document.getElementById('btn-mode-plan');
             const executeBtn = document.getElementById('btn-mode-execute');
             const supervisorBtn = document.getElementById('btn-mode-supervisor');
             const qualityBtn = document.getElementById('btn-mode-quality');
-            if (settingsBtn) settingsBtn.classList.toggle('hidden', isOperator);
-            if (planBtn) planBtn.classList.toggle('hidden', isOperator);
-            if (supervisorBtn) supervisorBtn.classList.toggle('hidden', isOperator);
-            if (qualityBtn) qualityBtn.classList.toggle('hidden', isOperator);
-            if (executeBtn) executeBtn.classList.remove('hidden');
+            if (settingsBtn) settingsBtn.classList.toggle('hidden', !canAccessAdminModules());
+            if (planBtn) planBtn.classList.toggle('hidden', !canAccessMode('PLAN'));
+            if (executeBtn) executeBtn.classList.toggle('hidden', !canAccessMode('EXECUTE'));
+            if (supervisorBtn) supervisorBtn.classList.toggle('hidden', !canAccessMode('SUPERVISOR'));
+            if (qualityBtn) qualityBtn.classList.toggle('hidden', !canAccessMode('QUALITY'));
         }
 
         async function executeLogin() { 
@@ -2627,7 +2696,7 @@
                 cloudState.token = payload.token;
                 cloudState.user = payload.user;
                 sessionStorage.setItem(CLOUD_TOKEN_KEY, payload.token);
-                userRole = payload.user?.role === 'operator' ? 'operator' : 'admin';
+                userRole = normalizeUserRole(payload.user?.role);
                 await hydrateCloudSnapshot();
                 initializeSettings();
                 updateLibrary();
@@ -2635,7 +2704,7 @@
                 document.getElementById('login-overlay').classList.add('hide-login');
                 setTimeout(() => { 
                     document.getElementById('login-overlay').style.display = 'none';
-                    setMode(userRole === 'operator' ? 'EXECUTE' : 'PLAN');
+                    setMode(getRoleStartMode(userRole));
                 }, 500);
             } catch (error) {
                 alert(error.message || 'Login failed');
@@ -2643,8 +2712,8 @@
         }
 
         function setMode(newMode) {
-            if (userRole === 'operator' && newMode !== 'EXECUTE') {
-                newMode = 'EXECUTE';
+            if (!canAccessMode(newMode)) {
+                newMode = getRoleStartMode(userRole);
             }
             mode = newMode; viewingPart = null; activeTrendId = null;
             aiScanSelectionActive = false;
@@ -2747,6 +2816,85 @@
             }
             updatePlanSaveState();
             if (settingsOpen) openSettingsPage();
+        }
+
+        async function refreshUserManagement() {
+            if (!canManageUsers()) return;
+            try {
+                const response = await cloudApi('/api/users');
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(payload?.error || 'Failed to load users');
+                managedUsers = Array.isArray(payload.users) ? payload.users : [];
+                renderUserManagementList();
+            } catch (error) {
+                alert(error.message || 'Could not load users');
+            }
+        }
+
+        function renderUserManagementList() {
+            const listEl = document.getElementById('user-management-list');
+            if (!listEl) return;
+            if (!canManageUsers()) {
+                listEl.innerHTML = '';
+                return;
+            }
+            if (!managedUsers.length) {
+                listEl.innerHTML = '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No users found for this organization</div>';
+                return;
+            }
+            listEl.innerHTML = managedUsers.map(user => `
+                <div class="border border-slate-200 rounded px-3 py-2 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-sm font-black text-[#1C355E]">${escapeHtml(user.displayName || user.email || 'User')}</p>
+                        <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(user.email || '')}</p>
+                    </div>
+                    <span class="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border border-slate-200 bg-slate-50 text-slate-700">${escapeHtml((user.role || '').toString())}</span>
+                </div>
+            `).join('');
+        }
+
+        async function createManagedUser() {
+            if (!canManageUsers()) return;
+            const displayName = (document.getElementById('user-mgmt-display-name')?.value || '').trim();
+            const email = (document.getElementById('user-mgmt-email')?.value || '').trim().toLowerCase();
+            const password = (document.getElementById('user-mgmt-password')?.value || '').trim();
+            const role = (document.getElementById('user-mgmt-role')?.value || 'operator').trim().toLowerCase();
+            if (!email || !password) {
+                alert('Email and password are required.');
+                return;
+            }
+            try {
+                const response = await cloudApi('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ displayName, email, password, role })
+                });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(payload?.error || 'Failed to create user');
+                document.getElementById('user-mgmt-display-name').value = '';
+                document.getElementById('user-mgmt-email').value = '';
+                document.getElementById('user-mgmt-password').value = '';
+                await refreshUserManagement();
+            } catch (error) {
+                alert(error.message || 'Failed to create user');
+            }
+        }
+
+        async function exitSystem() {
+            try {
+                if (cloudState.token) {
+                    await cloudApi('/api/auth/logout', { method: 'POST' });
+                }
+            } catch (error) {
+                console.warn('Logout request failed', error);
+            }
+            cloudState = { ...cloudState, enabled: false, token: '', user: null, pendingOps: [] };
+            sessionStorage.removeItem(CLOUD_TOKEN_KEY);
+            managedUsers = [];
+            applyRoleAccess();
+            setMode('PLAN');
+            document.getElementById('login-overlay').style.display = '';
+            document.getElementById('login-overlay').classList.remove('hide-login');
         }
 
         function autoSelectFeature() {
@@ -4218,28 +4366,6 @@
             return Number.isFinite(value) ? value.toFixed(3) : '0.000';
         }
 
-        function inferFeatureName(candidate, index) {
-            const text = (candidate.rawText || '').toUpperCase();
-            if (/(THREAD|THD|UNF|UNC|METRIC| M\d+\s*X )/.test(text)) return `Thread ${index + 1}`;
-            if (/(CHAMFER|CHMF|C'SINK|CSK)/.test(text)) return `Chamfer ${index + 1}`;
-            if (/(DIA|DIAM|OD|ID|O ?D|I ?D|PHI)/.test(text)) return `Diameter ${index + 1}`;
-            if (/(RADIUS|\bR\b| RAD )/.test(text)) return `Radius ${index + 1}`;
-            if (/(ANGLE| DEG |\u00B0)/.test(text)) return `Angle ${index + 1}`;
-            if (/(DEPTH|DEEP)/.test(text)) return `Depth ${index + 1}`;
-            return `Dimension ${index + 1}`;
-        }
-
-        function inferFeatureType(candidate) {
-            const text = (candidate?.rawText || candidate?.name || '').toUpperCase();
-            if (/(THREAD|THD|UNF|UNC|METRIC| M\d+\s*X )/.test(text)) return 'Thread';
-            if (/(CHAMFER|CHMF|C'SINK|CSK)/.test(text)) return 'Chamfer';
-            if (/(DIA|DIAM|OD|ID|O ?D|I ?D|PHI|Ø|ø)/.test(text)) return 'Diameter';
-            if (/(RADIUS|\bR\b| RAD )/.test(text)) return 'Radius';
-            if (/(ANGLE| DEG |\u00B0)/.test(text)) return 'Angle';
-            if (/(DEPTH|DEEP)/.test(text)) return 'Depth';
-            return 'Linear';
-        }
-
         function buildFeatureDescription(candidate) {
             const source = candidate.source === 'pdf-text'
                 ? (candidate.usedNeighborTolerance ? 'PDF text nominal with nearby tolerance inference' : 'PDF text extracted from drawing')
@@ -4622,6 +4748,64 @@
                 .slice(0, 24);
         }
 
+        function isValidExtractedCandidate(candidate) {
+            if (!candidate || !Number.isFinite(candidate.nominal) || candidate.nominal <= 0) return false;
+            const upper = Number.isFinite(candidate.upper) ? candidate.upper : 0;
+            const lower = Number.isFinite(candidate.lower) ? candidate.lower : 0;
+            if (upper < 0 || lower < 0) return false;
+            if (candidate.nominal > 1_000_000 || upper > 10_000 || lower > 10_000) return false;
+            return true;
+        }
+
+        function estimateCandidateConfidence(candidate) {
+            if (!candidate) return 0;
+            let score = 0.4;
+            const text = normalizeOcrText(candidate.rawText || '');
+            if (candidate.source === 'pdf-text') score += 0.25;
+            if (text && /\d/.test(text)) score += 0.12;
+            if (/(?:\+\/-|\/\+|-\/\+|\+\/\-|\u00B1)/.test(text)) score += 0.1;
+            if (Number.isFinite(candidate.upper) && Number.isFinite(candidate.lower)) score += 0.08;
+            if (candidate.usedNeighborTolerance) score -= 0.1;
+            if (candidate.ocrConfidence) score += Math.max(0, Math.min(0.2, (candidate.ocrConfidence - 0.5) * 0.4));
+            return Math.max(0, Math.min(0.99, score));
+        }
+
+        async function runOcrRecognizeWithTimeout(source, options = {}) {
+            const { timeoutMs = OCR_TIMEOUT_MS, logger = null } = options;
+            return Promise.race([
+                Tesseract.recognize(source, 'eng', logger ? { logger } : {}),
+                new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error(`OCR timed out after ${timeoutMs}ms`)), timeoutMs);
+                })
+            ]);
+        }
+
+        async function recognizeCanvasWithRetry(sourceCanvas, options = {}) {
+            const {
+                timeoutMs = OCR_TIMEOUT_MS,
+                maxRetries = OCR_MAX_RETRIES,
+                statusPrefix = 'Recognizing text'
+            } = options;
+            let lastError = null;
+            for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+                try {
+                    if (attempt > 0) {
+                        updateAIScanStatus(`${statusPrefix} (retry ${attempt}/${maxRetries})...`);
+                        await new Promise(resolve => setTimeout(resolve, OCR_RETRY_DELAY_MS));
+                    }
+                    const logger = message => {
+                        if (message.status === 'recognizing text') {
+                            updateAIScanStatus(`${statusPrefix} ${Math.round((message.progress || 0) * 100)}%`);
+                        }
+                    };
+                    return await runOcrRecognizeWithTimeout(sourceCanvas, { timeoutMs, logger });
+                } catch (error) {
+                    lastError = error;
+                }
+            }
+            throw lastError || new Error('OCR recognition failed');
+        }
+
         function buildPdfTextWords(items, viewport) {
             return items
                 .filter(item => (item.str || '').trim())
@@ -4689,13 +4873,7 @@
         async function extractDimensionCandidatesFromCanvas(canvas, selectionRect = null) {
             const sourceCanvas = selectionRect ? createCropCanvas(canvas, selectionRect) : canvas;
             const processedCanvas = enhanceCanvasForOCR(sourceCanvas);
-            const result = await Tesseract.recognize(processedCanvas, 'eng', {
-                logger: message => {
-                    if (message.status === 'recognizing text') {
-                        updateAIScanStatus(`Recognizing text ${Math.round((message.progress || 0) * 100)}%`);
-                    }
-                }
-            });
+            const result = await recognizeCanvasWithRetry(processedCanvas, { statusPrefix: 'Recognizing text' });
 
             const words = (result.data.words || [])
                 .filter(word => {
@@ -4708,7 +4886,8 @@
                 .map(word => ({
                     text: word.text || '',
                     bbox: word.bbox,
-                    centerY: (word.bbox.y0 + word.bbox.y1) / 2
+                    centerY: (word.bbox.y0 + word.bbox.y1) / 2,
+                    confidence: Math.max(0, Math.min(1, (word.confidence || 0) / 100))
                 }));
 
             const lines = mergeAlignedOcrLines(buildOcrLines(words));
@@ -4725,7 +4904,21 @@
             });
 
             const bounded = dedupeDimensionCandidates(candidates, { width: sourceCanvas.width, height: sourceCanvas.height });
-            return selectionRect ? bounded.map(candidate => offsetCandidateToRect(candidate, selectionRect)) : bounded;
+            const withConfidence = bounded.map(candidate => {
+                const wordConfidences = words
+                    .filter(word => {
+                        if (!candidate.bbox || !word.bbox) return false;
+                        return !(word.bbox.x1 < candidate.bbox.x0 || word.bbox.x0 > candidate.bbox.x1 || word.bbox.y1 < candidate.bbox.y0 || word.bbox.y0 > candidate.bbox.y1);
+                    })
+                    .map(word => word.confidence)
+                    .filter(Number.isFinite);
+                const avgConfidence = wordConfidences.length ? (wordConfidences.reduce((sum, value) => sum + value, 0) / wordConfidences.length) : null;
+                return {
+                    ...candidate,
+                    ocrConfidence: Number.isFinite(avgConfidence) ? avgConfidence : null
+                };
+            });
+            return selectionRect ? withConfidence.map(candidate => offsetCandidateToRect(candidate, selectionRect)) : withConfidence;
         }
 
         async function runAIAutoExtraction(selectionRect = null) {
@@ -4753,6 +4946,10 @@
                 if (!candidates.length) {
                     throw new Error(hasSelection ? "No dimension candidates were detected in the selected area." : "No dimension candidates were detected.");
                 }
+                candidates = candidates.filter(isValidExtractedCandidate);
+                if (!candidates.length) {
+                    throw new Error('Detected text, but no valid dimensions passed validation checks.');
+                }
 
                 updateAIScanStatus("Building inspection plan...");
 
@@ -4778,19 +4975,24 @@
                         }, 10, canvas)
                         : selectionRect ? selectionRect : null;
 
+                    const confidence = estimateCandidateConfidence(candidate);
+                    const needsReview = confidence < LOW_CONFIDENCE_THRESHOLD;
                     return normalizeFeatureRecord({
                         id: index + 1,
                         name: inferFeatureName(candidate, index),
                         type: inferFeatureType(candidate),
-                        description: buildFeatureDescription(candidate),
+                        description: `${buildFeatureDescription(candidate)}${needsReview ? ' (AI confidence low - review recommended)' : ''}`,
                         x: Math.min(98, Math.max(2, balloonX)),
                         y: Math.min(98, Math.max(2, balloonY)),
                         nominal: formatDimensionValue(candidate.nominal),
                         upper: formatDimensionValue(candidate.upper),
                         lower: formatDimensionValue(candidate.lower),
+                        confidence,
+                        needsReview,
                         sourceTrace: sourceRect ? buildFeatureSourceTrace(sourceRect, {
                             method: 'ai-scan',
-                            rawText: candidate.rawText || ''
+                            rawText: candidate.rawText || '',
+                            confidence
                         }) : null,
                         actual: "",
                         status: "PENDING"
@@ -5192,7 +5394,8 @@
             }
 
             plans.push(planData); 
-            let saveMessage = planData.pdfStored ? "Plan Saved Successfully!" : "Plan saved, but the drawing could not be stored. Upload it again next time.";
+            const drawingSaved = !currentPdfDataUrl || cloudState.enabled || planData.pdfStored || !!planData.pdfDataUrl;
+            let saveMessage = drawingSaved ? "Plan Saved Successfully!" : "Plan saved, but the drawing could not be stored. Upload it again next time.";
             
             try {
                 localStorage.setItem('omnisync_plans', JSON.stringify(plans));
@@ -5200,7 +5403,8 @@
                 planData.pdfDataUrl = null;
                 plans[plans.length - 1] = planData;
                 localStorage.setItem('omnisync_plans', JSON.stringify(plans));
-                saveMessage = planData.pdfStored ? "Plan Saved Successfully!" : "Plan saved, but browser storage is limited. Some assets may need to be re-uploaded next time.";
+                const fallbackDrawingSaved = !currentPdfDataUrl || cloudState.enabled || planData.pdfStored || !!planData.pdfDataUrl;
+                saveMessage = fallbackDrawingSaved ? "Plan Saved Successfully!" : "Plan saved, but browser storage is limited. Some assets may need to be re-uploaded next time.";
             }
 
             markPlanSaved();
@@ -5250,9 +5454,22 @@
 
             const imageData = ctx.getImageData(0, 0, enhanced.width, enhanced.height);
             const data = imageData.data;
+            let minGray = 255;
+            let maxGray = 0;
+            let sumGray = 0;
+            const pixelCount = data.length / 4;
             for (let i = 0; i < data.length; i += 4) {
                 const gray = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
-                const value = gray > 185 ? 255 : 0;
+                if (gray < minGray) minGray = gray;
+                if (gray > maxGray) maxGray = gray;
+                sumGray += gray;
+            }
+            const dynamicRange = Math.max(1, maxGray - minGray);
+            const adaptiveThreshold = Math.max(110, Math.min(210, (sumGray / Math.max(1, pixelCount)) - (dynamicRange * 0.18)));
+            for (let i = 0; i < data.length; i += 4) {
+                const gray = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
+                const boosted = Math.max(0, Math.min(255, ((gray - minGray) * 255) / dynamicRange));
+                const value = boosted > adaptiveThreshold ? 255 : 0;
                 data[i] = value;
                 data[i + 1] = value;
                 data[i + 2] = value;
@@ -5425,7 +5642,11 @@
             let best = { text: '', words: [], score: -1 };
 
             for (const option of orientations) {
-                const result = await Tesseract.recognize(option.canvas, 'eng');
+                const result = await recognizeCanvasWithRetry(option.canvas, {
+                    timeoutMs: 20000,
+                    maxRetries: 0,
+                    statusPrefix: `Reading selection (${option.angle} deg)`
+                });
                 const text = (result.data.text || '').trim();
                 const normalized = normalizeOcrText(text);
                 const words = (result.data.words || []).filter(word => (word.confidence || 0) >= 15);

@@ -17,30 +17,99 @@ function hashPassword(password) {
     return crypto.createHash('sha256').update(String(password)).digest('hex');
 }
 
+function normalizeRole(role) {
+    const normalized = String(role || '').trim().toLowerCase();
+    if (normalized === 'operator') return 'operator';
+    if (normalized === 'planner') return 'planner';
+    if (normalized === 'supervisor') return 'supervisor';
+    return 'admin';
+}
+
+function getDefaultUsers() {
+    return [
+        {
+            id: 'user-planner',
+            email: 'planner@fowlerprecision.com',
+            passwordHash: hashPassword('password'),
+            role: 'planner',
+            displayName: 'Planner',
+            orgId: 'fowler-demo'
+        },
+        {
+            id: 'user-op1',
+            email: 'op1@fowlerprecision.com',
+            passwordHash: hashPassword('password'),
+            role: 'operator',
+            displayName: 'Operator 1',
+            orgId: 'fowler-demo'
+        },
+        {
+            id: 'user-op2',
+            email: 'op2@fowlerprecision.com',
+            passwordHash: hashPassword('password'),
+            role: 'operator',
+            displayName: 'Operator 2',
+            orgId: 'fowler-demo'
+        },
+        {
+            id: 'user-op3',
+            email: 'op3@fowlerprecision.com',
+            passwordHash: hashPassword('password'),
+            role: 'operator',
+            displayName: 'Operator 3',
+            orgId: 'fowler-demo'
+        },
+        {
+            id: 'user-supervisor',
+            email: 'supervisor@fowlerprecision.com',
+            passwordHash: hashPassword('password'),
+            role: 'supervisor',
+            displayName: 'Supervisor',
+            orgId: 'fowler-demo'
+        },
+        {
+            id: 'user-admin',
+            email: 'admin@fowlerprecision.com',
+            passwordHash: hashPassword('password'),
+            role: 'admin',
+            displayName: 'Admin',
+            orgId: 'fowler-demo'
+        }
+    ];
+}
+
+function ensureDefaultUsers(db) {
+    const defaults = getDefaultUsers();
+    const byEmail = new Map((db.users || []).map(user => [String(user.email || '').toLowerCase(), user]));
+    let changed = false;
+    defaults.forEach(defaultUser => {
+        const key = defaultUser.email.toLowerCase();
+        if (!byEmail.has(key)) {
+            db.users.push({ ...defaultUser });
+            changed = true;
+            return;
+        }
+        const existing = byEmail.get(key);
+        const normalizedRole = normalizeRole(existing.role);
+        if (existing.role !== normalizedRole) {
+            existing.role = normalizedRole;
+            changed = true;
+        }
+        if (!existing.orgId) {
+            existing.orgId = defaultUser.orgId;
+            changed = true;
+        }
+    });
+    return changed;
+}
+
 function ensureDb() {
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
     }
     if (!fs.existsSync(DB_PATH)) {
         const initialDb = {
-            users: [
-                {
-                    id: 'user-admin',
-                    email: 'admin@fowlerprecision',
-                    passwordHash: hashPassword('password'),
-                    role: 'admin',
-                    displayName: 'Admin',
-                    orgId: 'fowler-demo'
-                },
-                {
-                    id: 'user-op1',
-                    email: 'op1@fowlerprecision',
-                    passwordHash: hashPassword('password'),
-                    role: 'operator',
-                    displayName: 'Operator 1',
-                    orgId: 'fowler-demo'
-                }
-            ],
+            users: getDefaultUsers(),
             sessions: {},
             storage: {
                 'fowler-demo': {}
@@ -48,6 +117,12 @@ function ensureDb() {
             measurementsDb: []
         };
         fs.writeFileSync(DB_PATH, JSON.stringify(initialDb, null, 2), 'utf8');
+        return;
+    }
+    const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+    db.users = Array.isArray(db.users) ? db.users : [];
+    if (ensureDefaultUsers(db)) {
+        fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
     }
 }
 
@@ -95,6 +170,17 @@ function authMiddleware(req, res, next) {
     next();
 }
 
+function requireRole(allowedRoles) {
+    const allowed = new Set((allowedRoles || []).map(normalizeRole));
+    return (req, res, next) => {
+        const role = normalizeRole(req.user?.role);
+        if (!allowed.has(role)) {
+            return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+        next();
+    };
+}
+
 app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'OmniSync Cloud API', timestamp: new Date().toISOString() });
 });
@@ -121,18 +207,57 @@ app.post('/api/auth/login', (req, res) => {
 
     res.json({
         token,
-        user: sanitizeUser(user)
+        user: sanitizeUser({ ...user, role: normalizeRole(user.role) })
     });
 });
 
 app.get('/api/auth/me', authMiddleware, (req, res) => {
-    res.json({ user: sanitizeUser(req.user) });
+    res.json({ user: sanitizeUser({ ...req.user, role: normalizeRole(req.user.role) }) });
 });
 
 app.post('/api/auth/logout', authMiddleware, (req, res) => {
     delete req.db.sessions[req.sessionToken];
     writeDb(req.db);
     res.json({ ok: true });
+});
+
+app.get('/api/users', authMiddleware, requireRole(['supervisor', 'admin']), (req, res) => {
+    const users = (req.db.users || [])
+        .filter(user => user.orgId === req.user.orgId)
+        .map(user => sanitizeUser({ ...user, role: normalizeRole(user.role) }))
+        .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
+    res.json({ users });
+});
+
+app.post('/api/users', authMiddleware, requireRole(['supervisor', 'admin']), (req, res) => {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
+    const displayName = String(req.body.displayName || '').trim();
+    const role = normalizeRole(req.body.role);
+    if (!email || !email.includes('@') || !email.includes('.')) {
+        return res.status(400).json({ error: 'Valid email is required' });
+    }
+    if (!password || password.length < 4) {
+        return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    }
+    if (!['operator', 'planner', 'supervisor'].includes(role)) {
+        return res.status(400).json({ error: 'Role must be operator, planner, or supervisor' });
+    }
+    const exists = (req.db.users || []).some(user => String(user.email || '').toLowerCase() === email);
+    if (exists) {
+        return res.status(409).json({ error: 'User already exists' });
+    }
+    const user = {
+        id: `user-${Date.now()}`,
+        email,
+        passwordHash: hashPassword(password),
+        role,
+        displayName: displayName || email.split('@')[0],
+        orgId: req.user.orgId
+    };
+    req.db.users.push(user);
+    writeDb(req.db);
+    res.status(201).json({ user: sanitizeUser(user) });
 });
 
 app.get('/api/storage/snapshot', authMiddleware, (req, res) => {
