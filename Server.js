@@ -135,6 +135,11 @@ function ensureDb() {
             storage: {
                 'fowler-demo': {}
             },
+            storageMeta: {
+                'fowler-demo': {
+                    updatedAt: Date.now()
+                }
+            },
             orgSettings: {
                 'fowler-demo': {
                     scanPolicy: {
@@ -160,6 +165,14 @@ function ensureDb() {
     }
     if (!db.orgSettings || typeof db.orgSettings !== 'object') {
         db.orgSettings = {};
+        changed = true;
+    }
+    if (!db.storageMeta || typeof db.storageMeta !== 'object') {
+        db.storageMeta = {};
+        changed = true;
+    }
+    if (!db.storageMeta['fowler-demo']) {
+        db.storageMeta['fowler-demo'] = { updatedAt: Date.now() };
         changed = true;
     }
     if (!db.orgSettings['fowler-demo']) {
@@ -195,6 +208,14 @@ function writeDb(db) {
         fs.copyFileSync(DB_PATH, backupPath);
     }
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
+}
+
+function touchOrgStorageMeta(db, orgId) {
+    const org = String(orgId || '');
+    if (!org) return;
+    db.storageMeta = db.storageMeta || {};
+    db.storageMeta[org] = db.storageMeta[org] || {};
+    db.storageMeta[org].updatedAt = Date.now();
 }
 
 function createToken() {
@@ -473,34 +494,48 @@ app.post('/api/scan/policy', authMiddleware, requirePermission('PLAN_EDIT'), (re
 
 app.get('/api/storage/snapshot', authMiddleware, requirePermission('PLAN_VIEW'), (req, res) => {
     const orgStorage = req.db.storage[req.user.orgId] || {};
+    const storageMeta = req.db.storageMeta?.[req.user.orgId] || {};
     res.json({
         orgId: req.user.orgId,
-        kv: orgStorage
+        kv: orgStorage,
+        updatedAt: storageMeta.updatedAt || 0
     });
 });
 
 app.post('/api/storage/sync', authMiddleware, requirePermission('PLAN_VIEW'), (req, res) => {
     const ops = Array.isArray(req.body.ops) ? req.body.ops : [];
     const orgStorage = req.db.storage[req.user.orgId] || {};
+    let changed = false;
 
     for (const op of ops) {
         if (!op || typeof op !== 'object') continue;
         if (op.type === 'clear') {
-            Object.keys(orgStorage).forEach(key => delete orgStorage[key]);
+            if (Object.keys(orgStorage).length) {
+                Object.keys(orgStorage).forEach(key => delete orgStorage[key]);
+                changed = true;
+            }
             continue;
         }
         const key = String(op.key || '');
         if (!key.startsWith('omnisync_')) continue;
         if (op.type === 'set') {
-            orgStorage[key] = String(op.value ?? '');
+            const nextValue = String(op.value ?? '');
+            if (orgStorage[key] !== nextValue) {
+                orgStorage[key] = nextValue;
+                changed = true;
+            }
         } else if (op.type === 'remove') {
-            delete orgStorage[key];
+            if (Object.prototype.hasOwnProperty.call(orgStorage, key)) {
+                delete orgStorage[key];
+                changed = true;
+            }
         }
     }
 
     req.db.storage[req.user.orgId] = orgStorage;
+    if (changed) touchOrgStorageMeta(req.db, req.user.orgId);
     writeDb(req.db);
-    res.json({ ok: true, keys: Object.keys(orgStorage).length });
+    res.json({ ok: true, keys: Object.keys(orgStorage).length, updatedAt: req.db.storageMeta?.[req.user.orgId]?.updatedAt || 0 });
 });
 
 app.post('/api/measurements', authMiddleware, requirePermission('EXECUTE_RUN'), (req, res) => {
