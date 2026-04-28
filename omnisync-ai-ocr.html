@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fowler OmniSync | Enterprise Platform</title>
+    <title>Fowler OmniSync ? Enterprise Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -635,7 +635,7 @@
                     <input type="file" id="csv-import-input" accept=".csv,text/csv" multiple class="hidden" onchange="importExecuteCsv(event)">
                     <button id="import-csv-btn" onclick="document.getElementById('csv-import-input').click()" class="hidden bg-white border border-slate-300 text-[#1C355E] px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-50 transition-colors">Import CSV</button>
                     <button id="live-monitor-btn" onclick="toggleLiveMonitor()" class="hidden bg-white border border-slate-300 text-[#1C355E] px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-50 transition-colors">Live Monitor</button>
-                    <span id="live-monitor-status" class="hidden text-[10px] bg-slate-100 text-slate-500 px-3 py-1 rounded-full font-bold uppercase tracking-widest border border-slate-200 flex items-center gap-2">Live Off</span>
+                    <span id="live-monitor-status" class="hidden text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full font-bold uppercase tracking-widest border border-slate-200 flex items-center gap-2 shrink-0">Live Off</span>
                     <button id="del-record-btn" onclick="deleteCurrentRecord()" class="hidden bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-red-800 transition-colors">Delete Run</button>
                     <button id="delete-selected-runs-btn" onclick="deleteSelectedRuns()" class="hidden bg-red-600 text-white px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-red-800 transition-colors">Delete Selected</button>
                     <button id="delete-all-runs-btn" onclick="deleteAllRuns()" class="hidden bg-red-100 text-red-700 px-3 py-1 rounded text-[10px] font-bold uppercase shadow hover:bg-red-200 transition-colors">Delete All</button>
@@ -858,6 +858,7 @@
         let lastPlanSavedAt = null;
         let editingRecordId = null;
         let floatingChartWindow = null;
+        let floatingChartRunId = null;
         let selectedQualityTab = 'overview';
         let recentAuditEvents = [];
         const CLOUD_TOKEN_KEY = 'omnisync_cloud_token';
@@ -867,7 +868,11 @@
             user: null,
             syncSuppressed: false,
             flushTimer: null,
-            pendingOps: []
+            pendingOps: [],
+            autoRefreshTimer: null,
+            autoRefreshMs: 5000,
+            lastSnapshotUpdatedAt: 0,
+            pollInFlight: false
         };
         let instrumentFilters = {
             search: '',
@@ -930,10 +935,12 @@
                     cloudState.pendingOps = [];
                     cloudState.flushTimer = null;
                     try {
-                        await cloudApi('/api/storage/sync', {
+                        const response = await cloudApi('/api/storage/sync', {
                             method: 'POST',
                             body: JSON.stringify({ ops })
                         });
+                        const payload = await response.json().catch(() => ({}));
+                        cloudState.lastSnapshotUpdatedAt = Number(payload?.updatedAt || 0) || cloudState.lastSnapshotUpdatedAt || 0;
                     } catch (error) {
                         console.error('Cloud sync failed', error);
                         cloudState.pendingOps = ops.concat(cloudState.pendingOps);
@@ -973,10 +980,12 @@
                 cloudState.pendingOps = [];
                 cloudState.flushTimer = null;
                 try {
-                    await cloudApi('/api/storage/sync', {
+                    const response = await cloudApi('/api/storage/sync', {
                         method: 'POST',
                         body: JSON.stringify({ ops })
                     });
+                    const payload = await response.json().catch(() => ({}));
+                    cloudState.lastSnapshotUpdatedAt = Number(payload?.updatedAt || 0) || cloudState.lastSnapshotUpdatedAt || 0;
                 } catch (error) {
                     console.error('Cloud sync flush failed', error);
                     cloudState.pendingOps = ops.concat(cloudState.pendingOps);
@@ -984,12 +993,63 @@
             }, 150);
         }
 
-        async function hydrateCloudSnapshot() {
+        function stopCloudAutoRefresh() {
+            if (cloudState.autoRefreshTimer) {
+                clearInterval(cloudState.autoRefreshTimer);
+                cloudState.autoRefreshTimer = null;
+            }
+            cloudState.pollInFlight = false;
+        }
+
+        function getStoredPlanIndexByName(planName) {
+            return JSON.parse(localStorage.getItem('omnisync_plans') || '[]').findIndex(plan => plan.name === planName);
+        }
+
+        async function restoreContextAfterCloudHydrate(previousContext = {}) {
+            updateLibrary();
+            const desiredMode = previousContext.mode || mode;
+            const desiredPlanName = previousContext.planName || currentPlanName;
+            const desiredTrendId = previousContext.activeTrendId || activeTrendId;
+            const desiredViewingRunId = previousContext.viewingRunId || floatingChartRunId || viewingPart?.id || null;
+
+            if (desiredPlanName) {
+                const planIndex = getStoredPlanIndexByName(desiredPlanName);
+                if (planIndex >= 0) {
+                    await loadPlan(planIndex);
+                    mode = desiredMode;
+                    setMode(desiredMode);
+                    if (desiredViewingRunId && desiredMode === 'SUPERVISOR') {
+                        viewHistoricalPart(desiredViewingRunId);
+                    } else if (desiredTrendId) {
+                        selectTrend(desiredTrendId);
+                    }
+                } else {
+                    renderApp();
+                }
+            } else {
+                setMode(desiredMode);
+            }
+
+            if (mode === 'SUPERVISOR') {
+                renderDashboard();
+            }
+            refreshFloatingChartWindow();
+        }
+
+        async function hydrateCloudSnapshot(options = {}) {
+            const { preserveContext = false } = options;
+            const previousContext = preserveContext ? {
+                mode,
+                planName: currentPlanName,
+                activeTrendId,
+                viewingRunId: viewingPart?.id || floatingChartRunId || null
+            } : null;
             cloudState.syncSuppressed = true;
             try {
                 const response = await cloudApi('/api/storage/snapshot');
                 const payload = await response.json();
                 const snapshot = payload?.kv || {};
+                cloudState.lastSnapshotUpdatedAt = Number(payload?.updatedAt || 0) || cloudState.lastSnapshotUpdatedAt || 0;
                 const localKeys = Object.keys(localStorage).filter(isCloudSyncKey);
                 const localState = {};
                 localKeys.forEach(key => {
@@ -1011,9 +1071,38 @@
                 Object.entries(snapshot).forEach(([key, value]) => {
                     if (isCloudSyncKey(key)) localStorage.setItem(key, value);
                 });
+                if (preserveContext) {
+                    await restoreContextAfterCloudHydrate(previousContext || {});
+                }
+                return payload;
             } finally {
                 cloudState.syncSuppressed = false;
             }
+        }
+
+        async function pollCloudSnapshotIfChanged() {
+            if (!cloudState.enabled || !cloudState.token || cloudState.pollInFlight || cloudState.syncSuppressed) return;
+            if (planDirty || cloudState.pendingOps.length || cloudState.flushTimer) return;
+            cloudState.pollInFlight = true;
+            try {
+                const response = await cloudApi('/api/storage/snapshot');
+                const payload = await response.json();
+                const updatedAt = Number(payload?.updatedAt || 0) || 0;
+                if (updatedAt && updatedAt <= (cloudState.lastSnapshotUpdatedAt || 0)) return;
+                await hydrateCloudSnapshot({ preserveContext: true });
+            } catch (error) {
+                console.error('Cloud auto-refresh failed', error);
+            } finally {
+                cloudState.pollInFlight = false;
+            }
+        }
+
+        function startCloudAutoRefresh() {
+            stopCloudAutoRefresh();
+            if (!cloudState.enabled || !cloudState.token) return;
+            cloudState.autoRefreshTimer = setInterval(() => {
+                pollCloudSnapshotIfChanged();
+            }, cloudState.autoRefreshMs);
         }
 
         async function restoreCloudSession() {
@@ -1030,11 +1119,13 @@
                 await loadPermissions();
                 await loadScanPolicy();
                 await hydrateCloudSnapshot();
+                startCloudAutoRefresh();
                 applyRoleAccess();
                 return true;
             } catch (error) {
                 console.error('Cloud session restore failed', error);
-                cloudState = { ...cloudState, enabled: false, token: '', user: null, pendingOps: [] };
+                stopCloudAutoRefresh();
+                cloudState = { ...cloudState, enabled: false, token: '', user: null, pendingOps: [], lastSnapshotUpdatedAt: 0 };
                 sessionStorage.removeItem(CLOUD_TOKEN_KEY);
                 return false;
             }
@@ -1204,6 +1295,12 @@
                 setMode(getRoleStartMode(userRole));
             }
         };
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                pollCloudSnapshotIfChanged();
+            }
+        });
 
         function escapeHtml(unsafe) {
             if(!unsafe) return '';
@@ -1403,7 +1500,7 @@
             const dashPlanName = document.getElementById('dash-plan-name');
             if (dashPlanName) {
                 const bits = [currentPlanMetadata.customer, currentPlanMetadata.operation, currentPlanMetadata.machine].filter(Boolean);
-                dashPlanName.innerText = bits.length ? bits.join(' | ') : identity;
+                dashPlanName.innerText = bits.length ? bits.join(' ? ') : identity;
             }
         }
 
@@ -1807,7 +1904,7 @@
                         <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500">Selected Run</p>
                         <h3 class="text-xl font-black italic text-[#1C355E] mt-1">#${viewingPart.id.toString().slice(-4)} • ${escapeHtml(viewingPart.time || '')}</h3>
                         <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${inspector}</p>
-                        ${contextBits.length ? `<p class="text-[9px] font-bold uppercase tracking-widest text-slate-400 mt-1">${escapeHtml(contextBits.join(' | '))}</p>` : ''}
+                        ${contextBits.length ? `<p class="text-[9px] font-bold uppercase tracking-widest text-slate-400 mt-1">${escapeHtml(contextBits.join(' ? '))}</p>` : ''}
                         ${(sourceType || sourceName) ? `<p class="text-[9px] font-bold uppercase tracking-widest text-indigo-500 mt-1">${sourceType || 'Source'}${sourceName ? ` • ${sourceName}` : ''}</p>` : ''}
                         ${sourceProfile ? `<p class="text-[9px] font-bold uppercase tracking-widest text-blue-500 mt-1">Imported via ${sourceProfile}</p>` : ''}
                     </div>
@@ -2517,7 +2614,7 @@
                 <div class="bg-white rounded shadow border p-5">
                     <div class="flex justify-between items-start gap-4">
                         <div>
-                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.packageNo)} | ${escapeHtml(item.createdAt)}</div>
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.packageNo)} ? ${escapeHtml(item.createdAt)}</div>
                             <h4 class="text-xl font-black text-[#1C355E] uppercase italic mt-2">${escapeHtml(item.title || item.partNumber || 'FAI Package')}</h4>
                             <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Part ${escapeHtml(item.partNumber || currentPlanName)} ${item.revision ? `| Rev ${escapeHtml(item.revision)}` : ''}</p>
                         </div>
@@ -2549,7 +2646,7 @@
                 <div class="bg-white rounded shadow border p-5">
                     <div class="flex justify-between items-start gap-4">
                         <div>
-                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.number)} | ${escapeHtml(item.createdAt)}</div>
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.number)} ? ${escapeHtml(item.createdAt)}</div>
                             <h4 class="text-xl font-black text-[#1C355E] uppercase italic mt-2">${escapeHtml(item.featureName || 'Non-Conformance')}</h4>
                         </div>
                         <div class="flex items-center gap-2">
@@ -2560,7 +2657,7 @@
                         </div>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 mt-4">
-                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Feature</label><select onchange="updateNcrRecord(${item.id}, 'featureId', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white">${features.map(feature => `<option value="${feature.id}" ${String(item.featureId) === String(feature.id) ? 'selected' : ''}>${escapeHtml(feature.id)} | ${escapeHtml(feature.name)}</option>`).join('')}</select></div>
+                        <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Feature</label><select onchange="updateNcrRecord(${item.id}, 'featureId', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white">${features.map(feature => `<option value="${feature.id}" ${String(item.featureId) === String(feature.id) ? 'selected' : ''}>${escapeHtml(feature.id)} ? ${escapeHtml(feature.name)}</option>`).join('')}</select></div>
                         <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Severity</label><select onchange="updateNcrRecord(${item.id}, 'severity', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white">${['Minor', 'Major', 'Critical'].map(value => `<option value="${value}" ${item.severity === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
                         <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Disposition</label><select onchange="updateNcrRecord(${item.id}, 'disposition', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white">${['Hold', 'Use As Is', 'Rework', 'Scrap', 'Return to Supplier'].map(value => `<option value="${value}" ${item.disposition === value ? 'selected' : ''}>${value}</option>`).join('')}</select></div>
                         <div><label class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Owner</label><input type="text" value="${escapeHtml(item.owner || '')}" onchange="updateNcrRecord(${item.id}, 'owner', this.value)" class="mt-1 w-full border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] bg-white"></div>
@@ -2587,7 +2684,7 @@
                             <span class="text-[10px] bg-slate-800 text-white px-3 py-1 rounded-full font-bold uppercase tracking-widest">${summary.planHealth.length} Plans</span>
                         </div>
                         <div class="mt-4 space-y-3">
-                            ${summary.planHealth.length ? summary.planHealth.slice(0, 8).map(item => `<div class="border border-slate-200 rounded p-3"><div class="flex justify-between items-start gap-3"><div><p class="text-sm font-black text-[#1C355E] uppercase italic">${escapeHtml(getPlanDisplayName(item.planName, item.metadata))}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(item.metadata.customer || 'No Customer')} ${item.metadata.operation ? `| ${escapeHtml(item.metadata.operation)}` : ''}</p></div><span class="text-[10px] font-bold uppercase tracking-widest ${item.yieldPercent < getEnterprisePolicies().yieldAlertThreshold ? 'text-red-600' : 'text-emerald-600'}">${item.yieldPercent.toFixed(1)}% Yield</span></div><div class="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div class="h-full ${item.yieldPercent < getEnterprisePolicies().yieldAlertThreshold ? 'bg-red-500' : 'bg-emerald-500'}" style="width:${Math.max(4, Math.min(100, item.yieldPercent))}%"></div></div><div class="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">${item.total} runs | ${item.fail} fail | ${item.incomplete} incomplete</div></div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No released-run history yet</div>'}
+                            ${summary.planHealth.length ? summary.planHealth.slice(0, 8).map(item => `<div class="border border-slate-200 rounded p-3"><div class="flex justify-between items-start gap-3"><div><p class="text-sm font-black text-[#1C355E] uppercase italic">${escapeHtml(getPlanDisplayName(item.planName, item.metadata))}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(item.metadata.customer || 'No Customer')} ${item.metadata.operation ? `| ${escapeHtml(item.metadata.operation)}` : ''}</p></div><span class="text-[10px] font-bold uppercase tracking-widest ${item.yieldPercent < getEnterprisePolicies().yieldAlertThreshold ? 'text-red-600' : 'text-emerald-600'}">${item.yieldPercent.toFixed(1)}% Yield</span></div><div class="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden"><div class="h-full ${item.yieldPercent < getEnterprisePolicies().yieldAlertThreshold ? 'bg-red-500' : 'bg-emerald-500'}" style="width:${Math.max(4, Math.min(100, item.yieldPercent))}%"></div></div><div class="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">${item.total} runs ? ${item.fail} fail ? ${item.incomplete} incomplete</div></div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No released-run history yet</div>'}
                         </div>
                     </div>
                     <div class="bg-white rounded shadow border p-5">
@@ -2596,7 +2693,7 @@
                             <span class="text-[10px] bg-slate-800 text-white px-3 py-1 rounded-full font-bold uppercase tracking-widest">${summary.topFailingFeatures.length} Drivers</span>
                         </div>
                         <div class="mt-4 space-y-3">
-                            ${summary.topFailingFeatures.length ? summary.topFailingFeatures.map(item => `<div class="border border-slate-200 rounded p-3"><div class="flex justify-between gap-3"><div><p class="text-sm font-black text-[#1C355E] uppercase italic">${escapeHtml(item.featureName)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(item.planName)} | ${escapeHtml(item.type)}</p></div><span class="text-[10px] font-bold uppercase tracking-widest text-red-600">${item.fail}/${item.total} fail</span></div></div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No failures detected yet</div>'}
+                            ${summary.topFailingFeatures.length ? summary.topFailingFeatures.map(item => `<div class="border border-slate-200 rounded p-3"><div class="flex justify-between gap-3"><div><p class="text-sm font-black text-[#1C355E] uppercase italic">${escapeHtml(item.featureName)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(item.planName)} ? ${escapeHtml(item.type)}</p></div><span class="text-[10px] font-bold uppercase tracking-widest text-red-600">${item.fail}/${item.total} fail</span></div></div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-4 text-sm text-slate-500 font-bold uppercase tracking-widest text-center">No failures detected yet</div>'}
                         </div>
                     </div>
                 </div>
@@ -2605,7 +2702,7 @@
                         <h4 class="text-xl font-black text-[#1C355E] uppercase italic">Data Connections</h4>
                         <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Reusable templates for CMMs, scanners, and CSV connectors</p>
                         <div class="mt-4 space-y-3">
-                            ${getDataSourceProfiles().map(profile => `<div class="border border-slate-200 rounded p-3 ${profile.active !== false ? 'bg-slate-50' : 'bg-slate-100 opacity-70'}"><div class="flex items-center justify-between gap-3"><div><p class="text-sm font-black text-[#1C355E]">${escapeHtml(profile.name)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(profile.provider)} | ${escapeHtml(profile.parseMode)} | ${escapeHtml(profile.featureMatch)}</p></div><span class="text-[10px] font-bold uppercase tracking-widest ${profile.active !== false ? 'text-emerald-600' : 'text-slate-500'}">${profile.active !== false ? 'Active' : 'Disabled'}</span></div></div>`).join('')}
+                            ${getDataSourceProfiles().map(profile => `<div class="border border-slate-200 rounded p-3 ${profile.active !== false ? 'bg-slate-50' : 'bg-slate-100 opacity-70'}"><div class="flex items-center justify-between gap-3"><div><p class="text-sm font-black text-[#1C355E]">${escapeHtml(profile.name)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">${escapeHtml(profile.provider)} ? ${escapeHtml(profile.parseMode)} ? ${escapeHtml(profile.featureMatch)}</p></div><span class="text-[10px] font-bold uppercase tracking-widest ${profile.active !== false ? 'text-emerald-600' : 'text-slate-500'}">${profile.active !== false ? 'Active' : 'Disabled'}</span></div></div>`).join('')}
                         </div>
                     </div>
                     <div class="bg-white rounded shadow border p-5">
@@ -2635,7 +2732,7 @@
                     <div class="bg-white rounded shadow border-l-4 border-slate-500 p-4"><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Calibration Alerts</div><div class="text-2xl font-black text-[#1C355E] mt-2">${alerts.filter(item => item.category === 'Calibration').length}</div></div>
                 </div>
                 <div class="space-y-4">
-                    ${alerts.length ? alerts.map(item => `<div class="bg-white rounded shadow border p-5 ${item.acknowledged ? 'opacity-70' : ''}"><div class="flex items-start justify-between gap-4"><div><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.category)} | ${escapeHtml(item.severity)}</div><h4 class="text-xl font-black text-[#1C355E] uppercase italic mt-2">${escapeHtml(item.title)}</h4><p class="text-sm text-slate-600 mt-3">${escapeHtml(item.detail)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-3">Recommended Action</p><p class="text-sm font-bold text-[#1C355E] mt-1">${escapeHtml(item.action)}</p></div><div class="flex flex-col items-end gap-2"><span class="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full ${item.severity === 'Critical' ? 'bg-red-100 text-red-700' : item.severity === 'High' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}">${escapeHtml(item.severity)}</span>${item.acknowledged ? '<span class="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Acknowledged</span>' : `<button onclick="acknowledgeAlert('${escapeHtml(item.id)}')" class="bg-[#1C355E] text-white px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Acknowledge</button>`}</div></div></div>`).join('') : '<div class="bg-white rounded shadow border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest">No active alerts</div>'}
+                    ${alerts.length ? alerts.map(item => `<div class="bg-white rounded shadow border p-5 ${item.acknowledged ? 'opacity-70' : ''}"><div class="flex items-start justify-between gap-4"><div><div class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(item.category)} ? ${escapeHtml(item.severity)}</div><h4 class="text-xl font-black text-[#1C355E] uppercase italic mt-2">${escapeHtml(item.title)}</h4><p class="text-sm text-slate-600 mt-3">${escapeHtml(item.detail)}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-3">Recommended Action</p><p class="text-sm font-bold text-[#1C355E] mt-1">${escapeHtml(item.action)}</p></div><div class="flex flex-col items-end gap-2"><span class="text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full ${item.severity === 'Critical' ? 'bg-red-100 text-red-700' : item.severity === 'High' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}">${escapeHtml(item.severity)}</span>${item.acknowledged ? '<span class="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Acknowledged</span>' : `<button onclick="acknowledgeAlert('${escapeHtml(item.id)}')" class="bg-[#1C355E] text-white px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Acknowledge</button>`}</div></div></div>`).join('') : '<div class="bg-white rounded shadow border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest">No active alerts</div>'}
                 </div>
             `;
             const auditMarkup = `
@@ -2645,7 +2742,7 @@
                         <button onclick="loadAuditTrail().then(() => renderQualityPage())" class="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Refresh</button>
                     </div>
                     <div class="mt-4 space-y-3">
-                        ${recentAuditEvents.length ? recentAuditEvents.map(event => `<div class="border border-slate-200 rounded p-3"><div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(event.action || 'EVENT')} | ${escapeHtml(event.entityType || 'entity')}</p><p class="text-sm font-black text-[#1C355E] mt-1">${escapeHtml(event.entityId || '')}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1">${escapeHtml(event.timestamp || '')}</p></div><span class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(event.actorId || 'system')}</span></div>${event.details ? `<pre class="mt-3 text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded p-3 overflow-x-auto">${escapeHtml(JSON.stringify(event.details, null, 2))}</pre>` : ''}</div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest">No audit events have been loaded yet</div>'}
+                        ${recentAuditEvents.length ? recentAuditEvents.map(event => `<div class="border border-slate-200 rounded p-3"><div class="flex items-start justify-between gap-3"><div><p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(event.action || 'EVENT')} ? ${escapeHtml(event.entityType || 'entity')}</p><p class="text-sm font-black text-[#1C355E] mt-1">${escapeHtml(event.entityId || '')}</p><p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1">${escapeHtml(event.timestamp || '')}</p></div><span class="text-[10px] font-bold uppercase tracking-widest text-slate-500">${escapeHtml(event.actorId || 'system')}</span></div>${event.details ? `<pre class="mt-3 text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded p-3 overflow-x-auto">${escapeHtml(JSON.stringify(event.details, null, 2))}</pre>` : ''}</div>`).join('') : '<div class="border border-dashed border-slate-300 rounded p-8 text-center text-sm text-slate-500 font-bold uppercase tracking-widest">No audit events have been loaded yet</div>'}
                     </div>
                 </div>
             `;
@@ -3522,6 +3619,7 @@
                 await loadPermissions();
                 await loadScanPolicy();
                 await hydrateCloudSnapshot();
+                startCloudAutoRefresh();
                 initializeSettings();
                 updateLibrary();
                 applyRoleAccess();
@@ -3814,7 +3912,8 @@
             } catch (error) {
                 console.warn('Logout request failed', error);
             }
-            cloudState = { ...cloudState, enabled: false, token: '', user: null, pendingOps: [] };
+            stopCloudAutoRefresh();
+            cloudState = { ...cloudState, enabled: false, token: '', user: null, pendingOps: [], lastSnapshotUpdatedAt: 0 };
             sessionStorage.removeItem(CLOUD_TOKEN_KEY);
             managedUsers = [];
             currentPermissions = new Set();
@@ -4368,16 +4467,38 @@
             floatingChartWindow = null;
         }
 
-        function getFloatingChartState(featureId = activeTrendId, chartType = currentChartType) {
-            const history = mode === 'SUPERVISOR' ? filterSupervisorHistory(getSupervisorHistory()) : getSupervisorHistory();
-            const selectedFeature = features.find(feature => feature.id === featureId) || features[0];
+        function getFloatingChartState(featureId = activeTrendId, chartType = currentChartType, selectedRunId = floatingChartRunId, followLatest = false) {
+            const history = getFloatingRunHistory();
+            const targetRun = followLatest && history.length
+                ? history[history.length - 1]
+                : history.find(record => Number(record.id) === Number(selectedRunId))
+                    || viewingPart
+                    || history[history.length - 1]
+                    || null;
+            const targetMeasurements = targetRun?.measurements?.map(normalizeFeatureRecord) || null;
+            const featureSet = targetMeasurements || getActiveFeatureSet();
+            const selectedFeature = featureSet.find(feature => feature.id === featureId)
+                || features.find(feature => feature.id === featureId)
+                || featureSet[0]
+                || features[0];
             return {
                 featureId: selectedFeature?.id || null,
                 chartType,
                 featureName: selectedFeature?.name || 'Feature',
                 planName: getPlanDisplayName(),
-                summaryHtml: document.getElementById('historical-run-summary')?.innerHTML || '',
-                features: getActiveFeatureSet().map(feature => ({
+                selectedRunId: targetRun?.id || null,
+                followLatest: !!followLatest,
+                liveMonitorActive: liveMonitorState.active,
+                summaryHtml: buildFloatingRunSummaryHtml(targetRun),
+                runList: history.map(record => ({
+                    id: record.id,
+                    time: record.time || '',
+                    status: record.status || 'N/A',
+                    operator: record.inspector || record.operator || 'Unassigned',
+                    sourceType: record.sourceType || '',
+                    sourceName: record.sourceName || ''
+                })),
+                features: featureSet.map(feature => ({
                     id: feature.id,
                     name: feature.name || `Feature ${feature.id}`,
                     status: feature.status || 'PENDING',
@@ -4439,8 +4560,8 @@
         function submitPartRecord() {
             if(!currentPlanName) return;
             const instrumentOptions = getMeasurementSourceOptions();
-            const defaultImportedInstrument = getAutomatedMeasurementSource('IMPORTED', '');
-            const inspector = document.getElementById('inspector-select')?.value || inspectorOptions[0] || 'Unassigned';
+            const operatorOptions = getOperatorOptions();
+            const inspector = document.getElementById('inspector-select')?.value || operatorOptions[0] || 'Unassigned';
             const runNote = document.getElementById('run-note-input')?.value.trim() || '';
             const context = getExecuteContext();
             const hasFail = features.some(f => f.status === 'FAIL');
@@ -4457,7 +4578,7 @@
                 sourceName: 'Manual Entry',
                 sourceProfile: editingRecordId ? (getSupervisorHistory().find(item => item.id === editingRecordId)?.sourceProfile || '') : '',
                 status: hasFail ? 'FAIL' : hasSkip ? 'INCOMPLETE' : 'PASS',
-                measurements: JSON.parse(JSON.stringify(features.map(f => ({ ...f, toolUsed: f.toolUsed || toolOptions[0] || '' }))))
+                measurements: JSON.parse(JSON.stringify(features.map(f => ({ ...f, toolUsed: f.toolUsed || instrumentOptions[0] || '' }))))
             };
             let hist = JSON.parse(localStorage.getItem(`omnisync_data_${currentPlanName}`) || '[]');
             if (editingRecordId) {
@@ -5116,8 +5237,9 @@
                 button.classList.remove('bg-white', 'text-[#1C355E]', 'border-slate-300');
                 button.classList.add('bg-emerald-600', 'text-white', 'border-emerald-700');
                 const planScope = liveMonitorState.planName && liveMonitorState.planName !== currentPlanName ? ` (${liveMonitorState.planName})` : '';
-                const liveText = liveMonitorState.lastImportAt ? `Live Data Monitoring${planScope} • ${liveMonitorState.lastImportAt}` : `Live Data Monitoring${planScope}`;
-                badge.innerHTML = `<span class="live-monitor-dot shrink-0"></span><span>${escapeHtml(liveText)}</span>`;
+                const liveDetail = liveMonitorState.lastImportAt ? `Live Data Monitoring${planScope} • ${liveMonitorState.lastImportAt}` : `Live Data Monitoring${planScope}`;
+                badge.innerHTML = `<span class="live-monitor-dot shrink-0"></span><span>LIVE</span>`;
+                badge.title = liveDetail;
                 badge.classList.remove('bg-slate-100', 'text-slate-500', 'border-slate-200');
                 badge.classList.add('bg-emerald-50', 'text-emerald-700', 'border-emerald-200');
                 badge.classList.add('live-monitor-badge');
@@ -5126,6 +5248,7 @@
                 button.classList.remove('bg-emerald-600', 'text-white', 'border-emerald-700');
                 button.classList.add('bg-white', 'text-[#1C355E]', 'border-slate-300');
                 badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-slate-300 shrink-0"></span><span>Live Off</span>`;
+                badge.title = 'Live monitor is off';
                 badge.classList.remove('bg-emerald-50', 'text-emerald-700', 'border-emerald-200');
                 badge.classList.add('bg-slate-100', 'text-slate-500', 'border-slate-200');
                 badge.classList.remove('live-monitor-badge');
@@ -5353,7 +5476,7 @@
                     tool.active !== false ? 'Yes' : 'No',
                     tool.bluetoothName || '',
                     tool.bluetoothId || '',
-                    (tool.records || []).map(record => `${record.date} ${record.result}${record.notes ? ` ${record.notes}` : ''}`).join(' | ')
+                    (tool.records || []).map(record => `${record.date} ${record.result}${record.notes ? ` ${record.notes}` : ''}`).join(' ? ')
                 ]);
             });
             gages.forEach(gage => {
@@ -5369,7 +5492,7 @@
                     gage.active !== false ? 'Yes' : 'No',
                     '',
                     '',
-                    (gage.records || []).map(record => `${record.date} ${record.result}${record.notes ? ` ${record.notes}` : ''}`).join(' | ')
+                    (gage.records || []).map(record => `${record.date} ${record.result}${record.notes ? ` ${record.notes}` : ''}`).join(' ? ')
                 ]);
             });
             const csv = rows.map(row => row.map(value => `"${`${value ?? ''}`.replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -5520,7 +5643,8 @@
         .feature.fail { border-left-color: #ef4444; background: #fef2f2; }
         .feature.skip { border-left-color: #f59e0b; background: #fffbeb; }
         .feature.active { box-shadow: 0 0 0 2px #3b82f6 inset; }
-        .toolbar { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 20px; border-bottom: 1px solid #e2e8f0; background: #fff; }
+        .toolbar { flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; padding: 14px 20px; border-bottom: 1px solid #e2e8f0; background: #fff; }
+        .toolbar-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
         .chart-wrap { flex: 1 1 auto; min-height: 0; padding: 20px; background: #f8fafc; }
         .chart-panel { height: 100%; min-height: 0; display: flex; flex-direction: column; background: #fff; border: 1px solid #cbd5e1; border-radius: 10px; padding: 14px; }
         .canvas-shell { position: relative; flex: 1 1 auto; min-height: 0; }
@@ -5528,6 +5652,10 @@
         button { background: #1C355E; color: #fff; border: none; border-radius: 6px; padding: 10px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
         .pill { background: #fff; color: #1C355E; border: 1px solid #cbd5e1; }
         .pill.active { background: #1C355E; color: #fff; }
+        .pill.following { background: #0f9f6e; color: #fff; border-color: #0f9f6e; }
+        button[disabled] { opacity: .45; cursor: not-allowed; }
+        select { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; font-size: 11px; font-weight: 700; color: #1C355E; background: #fff; min-width: 270px; }
+        .run-chip { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; color: #1C355E; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 9999px; padding: 6px 10px; }
     </style>
 </head>
 <body>
@@ -5544,7 +5672,10 @@
             <div id="floating-feature-list" class="features"></div>
         </div>
         <div class="right">
-            <div class="toolbar" id="floating-chart-types"></div>
+            <div class="toolbar">
+                <div class="toolbar-row" id="floating-run-controls"></div>
+                <div class="toolbar-row" id="floating-chart-types"></div>
+            </div>
             <div class="chart-wrap">
                 <div class="chart-panel">
                     <div id="floating-active-feature" class="meta" style="margin:0 0 10px 0;">Feature</div>
@@ -5557,8 +5688,11 @@
     </div>
     <script>
         let floatingChart = null;
+        let lastState = null;
         let selectedFeatureId = null;
+        let selectedRunId = null;
         let selectedChartType = 'trend';
+        let followLatest = ${liveMonitorState.active ? 'true' : 'false'};
         const chartTypes = ['trend', 'histogram', 'imr', 'capability'];
 
         function buildChart(state) {
@@ -5620,23 +5754,73 @@
             requestAnimationFrame(() => { if (floatingChart) floatingChart.resize(); });
         }
 
+        function buildRunControls(state) {
+            const runs = state.runList || [];
+            if (!runs.length) {
+                return '<span class="run-chip">No Runs Available</span>';
+            }
+            const currentIndex = runs.findIndex(run => Number(run.id) === Number(selectedRunId));
+            const prevRun = currentIndex > 0 ? runs[currentIndex - 1] : null;
+            const nextRun = currentIndex >= 0 && currentIndex < runs.length - 1 ? runs[currentIndex + 1] : null;
+            const currentRun = currentIndex >= 0 ? runs[currentIndex] : null;
+            return ''
+                + '<button class="pill" ' + (prevRun ? 'onclick="shiftRun(-1)"' : 'disabled') + '>Prev Run</button>'
+                + '<button class="pill" ' + (nextRun ? 'onclick="shiftRun(1)"' : 'disabled') + '>Next Run</button>'
+                + '<select onchange="selectRun(this.value)">'
+                + runs.slice().reverse().map(run => '<option value="' + run.id + '" ' + (Number(run.id) === Number(selectedRunId) ? 'selected' : '') + '>#' + String(run.id).slice(-4) + ' | ' + (run.status || 'N/A') + ' | ' + (run.time || '') + '</option>').join('')
+                + '</select>'
+                + '<button class="pill ' + (followLatest ? 'following' : '') + '" onclick="toggleFollowLatest()">' + (followLatest ? 'Following Latest' : 'Follow Latest') + '</button>'
+                + (currentRun ? '<span class="run-chip">' + (currentRun.operator || 'Unassigned') + ((currentRun.sourceType || currentRun.sourceName) ? ' | ' + [currentRun.sourceType, currentRun.sourceName].filter(Boolean).join(' / ') : '') + '</span>' : '');
+        }
+
         function refresh() {
             if (!window.opener || window.opener.closed) return;
-            const state = window.opener.getFloatingChartState(selectedFeatureId, selectedChartType);
+            const openerSelectedRunId = Number(window.opener.floatingChartRunId || 0) || null;
+            const requestedRunId = followLatest ? selectedRunId : (openerSelectedRunId || selectedRunId);
+            const state = window.opener.getFloatingChartState(selectedFeatureId, selectedChartType, requestedRunId, followLatest);
             if (!state || !state.featureId) return;
+            lastState = state;
             selectedFeatureId = state.featureId;
+            selectedRunId = state.selectedRunId;
             document.getElementById('floating-chart-title').textContent = 'Data Monitoring';
-            document.getElementById('floating-chart-meta').textContent = state.planName + ' • ' + selectedChartType.toUpperCase();
+            document.getElementById('floating-chart-meta').textContent = state.planName + ' | ' + selectedChartType.toUpperCase() + (followLatest ? ' | LIVE FOLLOW' : '');
             document.getElementById('floating-summary').innerHTML = state.summaryHtml || '<div class="meta">Live monitoring</div>';
-            document.getElementById('floating-active-feature').textContent = state.featureName + ' • ' + selectedChartType.toUpperCase();
-            document.getElementById('floating-feature-list').innerHTML = state.features.map(feature => '<div class="feature ' + ((feature.status || '').toLowerCase()) + (feature.id === selectedFeatureId ? ' active' : '') + '" onclick="selectFeature(' + feature.id + ')"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;">' + feature.type + '</div><div style="font-size:18px;font-weight:900;font-style:italic;margin-top:4px;">' + feature.name + '</div><div class="meta">' + (feature.actual || 'Pending') + (feature.toolUsed ? ' • ' + feature.toolUsed : '') + '</div></div>').join('');
-            document.getElementById('floating-chart-types').innerHTML = chartTypes.map(type => '<button class="pill ' + (type === selectedChartType ? 'active' : '') + '" onclick="setType(\\'' + type + '\\')">' + type.toUpperCase() + '</button>').join('');
+            document.getElementById('floating-active-feature').textContent = state.featureName + ' | ' + selectedChartType.toUpperCase();
+            document.getElementById('floating-feature-list').innerHTML = state.features.map(feature => '<div class="feature ' + ((feature.status || '').toLowerCase()) + (feature.id === selectedFeatureId ? ' active' : '') + '" onclick="selectFeature(' + feature.id + ')"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;">' + feature.type + '</div><div style="font-size:18px;font-weight:900;font-style:italic;margin-top:4px;">' + feature.name + '</div><div class="meta">' + (feature.actual || 'Pending') + (feature.toolUsed ? ' | ' + feature.toolUsed : '') + '</div></div>').join('');
+            document.getElementById('floating-chart-types').innerHTML = chartTypes.map(type => '<button class="pill ' + (type === selectedChartType ? 'active' : '') + '" onclick="setType(\'' + type + '\')">' + type.toUpperCase() + '</button>').join('');
+            document.getElementById('floating-run-controls').innerHTML = buildRunControls(state);
             requestAnimationFrame(() => buildChart(state));
         }
 
         function selectFeature(id) {
             selectedFeatureId = id;
             if (window.opener && !window.opener.closed) window.opener.selectTrend(id);
+            refresh();
+        }
+
+        function selectRun(id) {
+            selectedRunId = Number(id) || null;
+            followLatest = false;
+            if (window.opener && !window.opener.closed && typeof window.opener.focusFloatingRun === 'function' && selectedRunId) {
+                window.opener.focusFloatingRun(selectedRunId);
+            }
+            refresh();
+        }
+
+        function shiftRun(direction) {
+            if (!lastState || !lastState.runList || !lastState.runList.length) return;
+            const runs = lastState.runList;
+            const currentIndex = runs.findIndex(run => Number(run.id) === Number(selectedRunId));
+            const nextIndex = currentIndex === -1
+                ? runs.length - 1
+                : Math.min(runs.length - 1, Math.max(0, currentIndex + direction));
+            const target = runs[nextIndex];
+            if (target) selectRun(target.id);
+        }
+
+        function toggleFollowLatest() {
+            followLatest = !followLatest;
+            if (followLatest) selectedRunId = null;
             refresh();
         }
 
@@ -5684,6 +5868,7 @@
             selectedRunIds = new Set(Array.from(selectedRunIds).filter(id => filteredHist.some(record => Number(record.id) === Number(id))));
             if (viewingPart && !filteredHist.some(record => record.id === viewingPart.id)) {
                 viewingPart = null;
+                floatingChartRunId = null;
                 document.getElementById('del-record-btn').classList.add('hidden');
             }
             let pass = filteredHist.filter(p => p.status === 'PASS').length;
@@ -5725,6 +5910,7 @@
             if (viewingPart?.measurements) {
                 viewingPart.measurements = viewingPart.measurements.map(normalizeFeatureRecord);
             }
+            floatingChartRunId = viewingPart?.id || null;
             document.getElementById('del-record-btn').classList.remove('hidden'); 
             if(viewingPart && viewingPart.measurements.length > 0 && !activeTrendId) {
                 activeTrendId = viewingPart.measurements[0].id;
@@ -5734,8 +5920,52 @@
             document.getElementById('inline-trend-container').classList.remove('hidden');
             renderTrendChart();
         }
+
+        function focusFloatingRun(runId) {
+            const normalizedRunId = Number(runId) || null;
+            floatingChartRunId = normalizedRunId;
+            if (normalizedRunId && mode === 'SUPERVISOR') {
+                viewHistoricalPart(normalizedRunId);
+                return;
+            }
+            refreshFloatingChartWindow();
+        }
+
+        function getFloatingRunHistory() {
+            const hist = mode === 'SUPERVISOR' ? filterSupervisorHistory(getSupervisorHistory()) : getSupervisorHistory();
+            return hist.slice().sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+        }
+
+        function buildFloatingRunSummaryHtml(run) {
+            if (!run) {
+                return '<div class="meta">No run selected</div>';
+            }
+            const measurements = (run.measurements || []).map(normalizeFeatureRecord);
+            const failedMeasurements = measurements.filter(measurement => measurement.status === 'FAIL');
+            const inspector = escapeHtml(run.inspector || run.operator || 'Unassigned');
+            const sourceType = escapeHtml(run.sourceType || '');
+            const sourceName = escapeHtml(run.sourceName || '');
+            const sourceProfile = escapeHtml(run.sourceProfile || '');
+            const note = escapeHtml(run.note || '');
+            const toolsUsed = [...new Set(measurements.map(measurement => measurement.toolUsed || '').filter(Boolean))];
+            return `
+                <div>
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#64748b;">Selected Run</div>
+                    <div style="font-size:26px;font-weight:900;font-style:italic;margin-top:6px;">#${String(run.id).slice(-4)} • ${escapeHtml(run.time || '')}</div>
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;margin-top:8px;">${inspector}</div>
+                    ${(sourceType || sourceName) ? `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#4f46e5;margin-top:6px;">${sourceType || 'Source'}${sourceName ? ` • ${sourceName}` : ''}</div>` : ''}
+                    ${sourceProfile ? `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#2563eb;margin-top:6px;">Imported via ${sourceProfile}</div>` : ''}
+                    <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:14px;">
+                        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;">Features</div><div style="font-size:22px;font-weight:900;color:#1C355E;margin-top:4px;">${measurements.length}</div></div>
+                        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;">Failed</div><div style="font-size:22px;font-weight:900;color:#ef4444;margin-top:4px;">${failedMeasurements.length}</div></div>
+                        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;">Instruments</div><div style="font-size:11px;font-weight:900;color:#1C355E;line-height:1.3;margin-top:6px;">${escapeHtml(toolsUsed.join(', ') || 'None')}</div></div>
+                    </div>
+                    ${note ? `<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0;"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;">Run Note</div><div style="font-size:12px;font-weight:700;color:#1C355E;margin-top:6px;">${note}</div></div>` : ''}
+                </div>
+            `;
+        }
         
-        function deleteCurrentRecord() { if (!viewingPart || !confirm("Delete record?")) return; const deletedId = Number(viewingPart.id); let h = JSON.parse(localStorage.getItem(`omnisync_data_${currentPlanName}`) || '[]'); h = h.filter(p => p.id !== viewingPart.id); localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(h)); selectedRunIds.delete(deletedId); recordAuditEvent('RUN_DELETE', 'inspection-run', `${currentPlanName}:${deletedId}`, {}); viewingPart = null; document.getElementById('del-record-btn').classList.add('hidden'); renderDashboard(); renderApp(); }
+        function deleteCurrentRecord() { if (!viewingPart || !confirm("Delete record?")) return; const deletedId = Number(viewingPart.id); let h = JSON.parse(localStorage.getItem(`omnisync_data_${currentPlanName}`) || '[]'); h = h.filter(p => p.id !== viewingPart.id); localStorage.setItem(`omnisync_data_${currentPlanName}`, JSON.stringify(h)); selectedRunIds.delete(deletedId); recordAuditEvent('RUN_DELETE', 'inspection-run', `${currentPlanName}:${deletedId}`, {}); viewingPart = null; if (Number(floatingChartRunId) === deletedId) floatingChartRunId = null; document.getElementById('del-record-btn').classList.add('hidden'); renderDashboard(); renderApp(); }
 
         // --- EXACT ORIGINAL YOUR UPLOAD LOGIC ---
         async function handleFileUpload(event) {
