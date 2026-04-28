@@ -5623,6 +5623,7 @@
         }
 
         function buildFloatingMonitoringPopupHtml() {
+            const initialFollowLatest = 'false';
             return `<!doctype html>
 <html>
 <head>
@@ -5692,7 +5693,7 @@
         let selectedFeatureId = null;
         let selectedRunId = null;
         let selectedChartType = 'trend';
-        let followLatest = ${liveMonitorState.active ? 'true' : 'false'};
+        let followLatest = ${initialFollowLatest};
         const chartTypes = ['trend', 'histogram', 'imr', 'capability'];
 
         function buildChart(state) {
@@ -5775,19 +5776,19 @@
 
         function refresh() {
             if (!window.opener || window.opener.closed) return;
-            const openerSelectedRunId = Number(window.opener.floatingChartRunId || 0) || null;
-            const requestedRunId = followLatest ? selectedRunId : (openerSelectedRunId || selectedRunId);
+            const openerRunId = Number(window.opener.floatingChartRunId || 0) || null;
+            const requestedRunId = followLatest ? null : (selectedRunId || openerRunId);
             const state = window.opener.getFloatingChartState(selectedFeatureId, selectedChartType, requestedRunId, followLatest);
             if (!state || !state.featureId) return;
             lastState = state;
             selectedFeatureId = state.featureId;
-            selectedRunId = state.selectedRunId;
+            selectedRunId = state.selectedRunId || null;
             document.getElementById('floating-chart-title').textContent = 'Data Monitoring';
             document.getElementById('floating-chart-meta').textContent = state.planName + ' | ' + selectedChartType.toUpperCase() + (followLatest ? ' | LIVE FOLLOW' : '');
-            document.getElementById('floating-summary').innerHTML = state.summaryHtml || '<div class="meta">Live monitoring</div>';
+            document.getElementById('floating-summary').innerHTML = state.summaryHtml || '<div class="meta">No run selected</div>';
             document.getElementById('floating-active-feature').textContent = state.featureName + ' | ' + selectedChartType.toUpperCase();
-            document.getElementById('floating-feature-list').innerHTML = state.features.map(feature => '<div class="feature ' + ((feature.status || '').toLowerCase()) + (feature.id === selectedFeatureId ? ' active' : '') + '" onclick="selectFeature(' + feature.id + ')"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;">' + feature.type + '</div><div style="font-size:18px;font-weight:900;font-style:italic;margin-top:4px;">' + feature.name + '</div><div class="meta">' + (feature.actual || 'Pending') + (feature.toolUsed ? ' | ' + feature.toolUsed : '') + '</div></div>').join('');
-            document.getElementById('floating-chart-types').innerHTML = chartTypes.map(type => '<button class="pill ' + (type === selectedChartType ? 'active' : '') + '" onclick="setType(\'' + type + '\')">' + type.toUpperCase() + '</button>').join('');
+            document.getElementById('floating-feature-list').innerHTML = (state.features || []).map(feature => '<div class="feature ' + ((feature.status || '').toLowerCase()) + (feature.id === selectedFeatureId ? ' active' : '') + '" onclick="selectFeature(' + feature.id + ')"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:#64748b;">' + feature.type + '</div><div style="font-size:18px;font-weight:900;font-style:italic;margin-top:4px;">' + feature.name + '</div><div class="meta">' + (feature.actual || 'Pending') + (feature.toolUsed ? ' | ' + feature.toolUsed : '') + '</div></div>').join('');
+            document.getElementById('floating-chart-types').innerHTML = chartTypes.map(type => '<button class="pill ' + (type === selectedChartType ? 'active' : '') + '" onclick="setType(\\'' + type + '\\')">' + type.toUpperCase() + '</button>').join('');
             document.getElementById('floating-run-controls').innerHTML = buildRunControls(state);
             requestAnimationFrame(() => buildChart(state));
         }
@@ -5803,17 +5804,16 @@
             followLatest = false;
             if (window.opener && !window.opener.closed && typeof window.opener.focusFloatingRun === 'function' && selectedRunId) {
                 window.opener.focusFloatingRun(selectedRunId);
+            } else {
+                refresh();
             }
-            refresh();
         }
 
         function shiftRun(direction) {
             if (!lastState || !lastState.runList || !lastState.runList.length) return;
             const runs = lastState.runList;
             const currentIndex = runs.findIndex(run => Number(run.id) === Number(selectedRunId));
-            const nextIndex = currentIndex === -1
-                ? runs.length - 1
-                : Math.min(runs.length - 1, Math.max(0, currentIndex + direction));
+            const nextIndex = currentIndex === -1 ? runs.length - 1 : Math.min(runs.length - 1, Math.max(0, currentIndex + direction));
             const target = runs[nextIndex];
             if (target) selectRun(target.id);
         }
@@ -5829,6 +5829,7 @@
             refresh();
         }
 
+        window.refresh = refresh;
         window.addEventListener('load', refresh);
         window.addEventListener('focus', refresh);
         window.addEventListener('resize', () => { if (floatingChart) floatingChart.resize(); });
@@ -5839,6 +5840,14 @@
 
         function openFloatingChartWindow() {
             closeChartMenu();
+            if (mode === 'SUPERVISOR') {
+                if (viewingPart?.id) {
+                    floatingChartRunId = viewingPart.id;
+                } else {
+                    const history = getFloatingRunHistory();
+                    if (history.length) floatingChartRunId = history[history.length - 1].id;
+                }
+            }
             if (!activeTrendId) {
                 const firstFeature = getActiveFeatureSet()[0];
                 if (firstFeature) selectTrend(firstFeature.id);
