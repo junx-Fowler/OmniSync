@@ -6777,6 +6777,40 @@
 
         let aiAnalysisContext = null;
 
+        function isAutomatedOperatorLabel(value = '') {
+            const normalized = String(value || '').trim().toLowerCase();
+            return !normalized
+                || normalized === 'automated'
+                || normalized === 'unknown'
+                || normalized.includes('robot')
+                || normalized.includes('system ai')
+                || normalized.includes('robot cell')
+                || normalized.includes('cell');
+        }
+
+        function isManualAnalysisSource(sourceType = '') {
+            return String(sourceType || '').trim().toUpperCase() === 'MANUAL';
+        }
+
+        function computeDominantAnalysisSignal(statsMap, failedCount, options = {}) {
+            const { minComparativeGroups = 2, minFailed = 2, minFailShare = 0.7, minSampleSize = 3 } = options;
+            const entries = Object.entries(statsMap || {}).filter(([, stat]) => (stat.total || 0) >= minSampleSize);
+            if (entries.length < minComparativeGroups || failedCount < minFailed) return null;
+            const ranked = entries
+                .map(([name, stat]) => ({
+                    name,
+                    ...stat,
+                    failRate: stat.total ? stat.failed / stat.total : 0,
+                    failShare: failedCount ? stat.failed / failedCount : 0
+                }))
+                .sort((a, b) => b.failed - a.failed || b.failRate - a.failRate || b.total - a.total);
+            const leader = ranked[0];
+            const runnerUp = ranked[1] || null;
+            if (!leader || leader.failed < minFailed || leader.failShare < minFailShare) return null;
+            if (runnerUp && leader.failRate <= runnerUp.failRate + 0.08 && leader.failed <= runnerUp.failed + 1) return null;
+            return leader;
+        }
+
         function buildAIAnalysisContext() {
             const fullHistory = getSupervisorHistory();
             const hist = mode === 'SUPERVISOR' ? filterSupervisorHistory(fullHistory) : fullHistory;
@@ -6789,6 +6823,10 @@
             const featureStats = {};
             const inspectorStats = {};
             const toolStats = {};
+            const sourceStats = {};
+            const operatorSet = new Set();
+            const instrumentSet = new Set();
+            const sourceKeys = new Set();
 
             const ensureFeature = (measurement) => {
                 if (!featureStats[measurement.id]) {
@@ -6811,10 +6849,21 @@
             };
 
             hist.forEach(record => {
-                const inspector = record.inspector || record.operator || 'Unknown';
-                inspectorStats[inspector] = inspectorStats[inspector] || { total: 0, failed: 0 };
-                inspectorStats[inspector].total += 1;
-                if (record.status === 'FAIL') inspectorStats[inspector].failed += 1;
+                const operatorName = record.inspector || record.operator || 'Unknown';
+                const sourceType = String(record.sourceType || '').trim() || 'MANUAL';
+                const sourceName = String(record.sourceName || '').trim();
+                const sourceKey = [sourceType, sourceName || 'Unspecified'].join(' | ');
+                sourceKeys.add(sourceKey);
+                sourceStats[sourceKey] = sourceStats[sourceKey] || { total: 0, failed: 0, sourceType, sourceName: sourceName || 'Unspecified' };
+                sourceStats[sourceKey].total += 1;
+                if (record.status === 'FAIL') sourceStats[sourceKey].failed += 1;
+
+                if (!isAutomatedOperatorLabel(operatorName) && sourceType === 'MANUAL') {
+                    operatorSet.add(operatorName);
+                    inspectorStats[operatorName] = inspectorStats[operatorName] || { total: 0, failed: 0 };
+                    inspectorStats[operatorName].total += 1;
+                    if (record.status === 'FAIL') inspectorStats[operatorName].failed += 1;
+                }
 
                 (record.measurements || []).forEach(measurement => {
                     const stat = ensureFeature(measurement);
@@ -6828,10 +6877,13 @@
                         }
                     }
 
-                    const tool = measurement.toolUsed || 'Unknown';
-                    toolStats[tool] = toolStats[tool] || { total: 0, failed: 0 };
-                    toolStats[tool].total += 1;
-                    if (measurement.status === 'FAIL') toolStats[tool].failed += 1;
+                    const tool = measurement.toolUsed || '';
+                    if (tool) {
+                        instrumentSet.add(tool);
+                        toolStats[tool] = toolStats[tool] || { total: 0, failed: 0 };
+                        toolStats[tool].total += 1;
+                        if (measurement.status === 'FAIL') toolStats[tool].failed += 1;
+                    }
                 });
             });
 
@@ -6869,25 +6921,27 @@
             }).sort((a, b) => b.failCount - a.failCount || Math.abs(b.slope) - Math.abs(a.slope));
 
             const topFeature = featureAnalyses[0] || null;
-            const dominantInspectorEntry = Object.entries(inspectorStats)
-                .sort((a, b) => b[1].failed - a[1].failed || b[1].total - a[1].total)[0];
-            const dominantToolEntry = Object.entries(toolStats)
-                .sort((a, b) => b[1].failed - a[1].failed || b[1].total - a[1].total)[0];
-
-            const dominantInspector = dominantInspectorEntry ? {
-                name: dominantInspectorEntry[0],
-                ...dominantInspectorEntry[1],
-                failShare: failedParts.length ? dominantInspectorEntry[1].failed / failedParts.length : 0
-            } : null;
-            const dominantTool = dominantToolEntry ? {
-                name: dominantToolEntry[0],
-                ...dominantToolEntry[1],
-                failShare: failedParts.length ? dominantToolEntry[1].failed / failedParts.length : 0
-            } : null;
+            const dominantInspector = computeDominantAnalysisSignal(inspectorStats, failedParts.length);
+            const dominantTool = computeDominantAnalysisSignal(toolStats, failedParts.length);
+            const dominantSource = computeDominantAnalysisSignal(sourceStats, failedParts.length, { minComparativeGroups: 1, minFailed: 1, minFailShare: 0.8, minSampleSize: 1 });
+            const sourceSummaryEntries = Object.values(sourceStats);
+            const automatedSourceOnly = sourceSummaryEntries.length > 0 && sourceSummaryEntries.every(item => !isManualAnalysisSource(item.sourceType));
+            const singleInstrumentContext = instrumentSet.size <= 1;
+            const singleOperatorContext = operatorSet.size <= 1;
+            const singleSourceContext = sourceKeys.size <= 1;
+            const operatorSignalActionable = !!dominantInspector && !singleOperatorContext && !automatedSourceOnly;
+            const instrumentSignalActionable =
+                !!dominantTool
+                && !singleInstrumentContext
+                && !(automatedSourceOnly && singleSourceContext);
+            const sourceSignalActionable =
+                !!dominantSource
+                && sourceSummaryEntries.length > 1
+                && dominantSource.failed > 0;
 
             const measurementSystemSignal =
                 failedParts.length > 0 &&
-                ((dominantInspector && dominantInspector.failShare >= 0.7) || (dominantTool && dominantTool.failShare >= 0.7));
+                (operatorSignalActionable || instrumentSignalActionable);
 
             return {
                 hist,
@@ -6899,17 +6953,45 @@
                 topFeature,
                 dominantInspector,
                 dominantTool,
-                measurementSystemSignal
+                dominantSource,
+                operatorSignalActionable,
+                instrumentSignalActionable,
+                automatedSourceOnly,
+                sourceSignalActionable,
+                singleInstrumentContext,
+                singleOperatorContext,
+                singleSourceContext,
+                measurementSystemSignal,
+                sourceSummary: sourceKeys.size === 1 ? sourceSummaryEntries[0] || null : null
             };
         }
 
         function buildAIAnalysisSummary(context) {
-            const { total, yieldPct, failedParts, topFeature, dominantInspector, dominantTool, measurementSystemSignal } = context;
+            const {
+                total,
+                yieldPct,
+                failedParts,
+                topFeature,
+                dominantInspector,
+                dominantTool,
+                dominantSource,
+                measurementSystemSignal,
+                automatedSourceOnly,
+                sourceSignalActionable,
+                singleInstrumentContext,
+                singleSourceContext,
+                sourceSummary,
+                operatorSignalActionable,
+                instrumentSignalActionable
+            } = context;
 
             let text = `> INITIALIZING OMNISYNC INTELLIGENCE...\n> LOG START: ${new Date().toLocaleString()}\n\n`;
             text += `[ANALYSIS SUMMARY]\n- Total Units Inspected: ${total}\n- Current Yield: ${yieldPct}%\n- Failed Units: ${failedParts.length}\n`;
             if (topFeature) {
                 text += `- Highest-risk Feature: ${topFeature.name} (${Math.round(topFeature.failRate * 100)}% fail involvement)\n`;
+            }
+            if (sourceSummary) {
+                text += `- Data Source Context: ${sourceSummary.sourceType || 'Unknown'}${sourceSummary.sourceName ? ` (${sourceSummary.sourceName})` : ''}\n`;
             }
             text += `\n`;
 
@@ -6918,7 +7000,7 @@
                 if (topFeature && topFeature.recentMean !== null) {
                     text += `- ${topFeature.name} is ${topFeature.direction} with recent average ${topFeature.recentMean.toFixed(3)}.\n`;
                 }
-                text += `- No dominant inspector or tool pattern is driving failures.\n`;
+                text += `- No dominant comparative operator or instrument pattern is driving failures.\n`;
             } else {
                 text += `[DETAILED FINDINGS]\n`;
                 if (topFeature) {
@@ -6927,18 +7009,33 @@
                         : `Recent measurements are relatively flat but biased ${topFeature.direction}.`;
                     text += `- Feature ${topFeature.id} (${topFeature.name}) contributes the largest share of non-conformances. ${trendPhrase}\n`;
                 }
-                if (dominantInspector && dominantInspector.failed > 0) {
+                if (operatorSignalActionable && dominantInspector && dominantInspector.failed > 0) {
                     text += `- ${dominantInspector.name} is associated with ${dominantInspector.failed} of ${failedParts.length} failed units (${Math.round(dominantInspector.failShare * 100)}%).\n`;
                 }
-                if (dominantTool && dominantTool.failed > 0) {
-                text += `- ${dominantTool.name} appears on ${dominantTool.failed} failed measurements and is the strongest instrument-side signal.\n`;
+                if (instrumentSignalActionable && dominantTool && dominantTool.failed > 0) {
+                    text += `- ${dominantTool.name} appears on ${dominantTool.failed} failed measurements and is the strongest instrument-side signal.\n`;
+                } else if (singleInstrumentContext && sourceSummary?.sourceType && !isManualAnalysisSource(sourceSummary.sourceType)) {
+                    text += `- All measurements in this dataset came through the same ${sourceSummary.sourceType.toLowerCase()} source${sourceSummary.sourceName ? ` (${sourceSummary.sourceName})` : ''}, so instrument concentration alone is not diagnostic.\n`;
+                }
+                if (automatedSourceOnly && sourceSummary && singleSourceContext) {
+                    text += `- This dataset is fully automated from ${sourceSummary.sourceType}${sourceSummary.sourceName ? ` (${sourceSummary.sourceName})` : ''}; operator-side concentration is not meaningful here.\n`;
+                } else if (sourceSignalActionable && dominantSource) {
+                    text += `- Failures are concentrated in the ${dominantSource.sourceType}${dominantSource.sourceName ? ` (${dominantSource.sourceName})` : ''} source stream, which is worth comparing against other data sources or programs.\n`;
                 }
                 if (measurementSystemSignal) {
                     text += `- Failure concentration suggests a measurement-system issue may be contributing, not only a machining issue.\n\n`;
                     text += `[RECOMMENDED ACTION PLAN]\n`;
-                    text += `1. Segregate the failed units measured by the dominant operator/instrument combination and confirm them with an alternate operator and alternate instrument.\n`;
-                    text += `2. Verify calibration and zeroing on ${dominantTool?.name || 'the dominant instrument'}, then perform a short repeatability check.\n`;
-                    text += `3. Review the inspection method with ${dominantInspector?.name || 'the dominant inspector'} for this feature, including part orientation and contact points.\n`;
+                    text += `1. Segregate the failed units tied to the strongest comparative signal and confirm them with an independent check.\n`;
+                    if (instrumentSignalActionable && dominantTool?.name) {
+                        text += `2. Verify calibration and zeroing on ${dominantTool.name}, then perform a short repeatability check.\n`;
+                    } else {
+                        text += `2. Verify calibration status, program alignment, and repeatability on the measurement system before changing the process.\n`;
+                    }
+                    if (operatorSignalActionable && dominantInspector?.name) {
+                        text += `3. Review the inspection method with ${dominantInspector.name} for this feature, including part orientation and contact points.\n`;
+                    } else {
+                        text += `3. Review fixturing, datum alignment, and feature extraction logic for the flagged characteristic.\n`;
+                    }
                     if (topFeature) {
                         text += `4. If the alternate check confirms true process drift on ${topFeature.name}, adjust the process only after measurement variation has been ruled out.\n`;
                     }
@@ -6951,8 +7048,10 @@
                     }
                     text += `2. Check the cutting process, tooling condition, and setup offsets on the operation producing the out-of-tolerance feature.\n`;
                     text += `3. Confirm the next 3-5 parts with tightened inspection frequency to verify whether the trend is corrected.\n`;
-                    if (dominantTool && dominantTool.failed > 0) {
+                    if (instrumentSignalActionable && dominantTool && dominantTool.failed > 0) {
                         text += `4. Compare results across instruments, with extra focus on ${dominantTool.name}, to separate process variation from instrument-specific measurement variation.\n`;
+                    } else if (automatedSourceOnly) {
+                        text += `4. Because the data comes from one automated source, confirm a sample of failed parts with an independent method before changing the process, then review the SCAN/CMM program alignment, feature mapping, and fixture setup.\n`;
                     }
                 }
             }
@@ -6989,17 +7088,32 @@
             }
 
             if (q.includes('inspector')) {
-                if (!context.dominantInspector || context.dominantInspector.failed === 0) {
-                    return 'No inspector stands out as a dominant failure source in the current data.';
+                if (!context.operatorSignalActionable || !context.dominantInspector || context.dominantInspector.failed === 0) {
+                    return context.automatedSourceOnly
+                        ? 'This dataset is fully automated, so operator concentration is not a meaningful signal here.'
+                        : 'No operator stands out as a dominant failure source in the current data.';
                 }
                 return `${context.dominantInspector.name} is tied to ${context.dominantInspector.failed} of ${context.failedParts.length} failed units (${Math.round(context.dominantInspector.failShare * 100)}%). This is ${context.measurementSystemSignal ? 'a strong measurement-system signal' : 'worth monitoring, but not yet dominant enough by itself'}.`;
             }
 
             if (q.includes('tool') || q.includes('gage') || q.includes('gauge') || q.includes('instrument')) {
-                if (!context.dominantTool || context.dominantTool.failed === 0) {
-                    return 'No instrument stands out as a dominant failure source in the current data.';
+                if (!context.instrumentSignalActionable || !context.dominantTool || context.dominantTool.failed === 0) {
+                    if (context.singleInstrumentContext && context.sourceSummary?.sourceType && !isManualAnalysisSource(context.sourceSummary.sourceType)) {
+                        return `All measurements in this dataset came from the same ${context.sourceSummary.sourceType.toLowerCase()} source${context.sourceSummary.sourceName ? ` (${context.sourceSummary.sourceName})` : ''}, so instrument concentration by itself is not diagnostic.`;
+                    }
+                    return 'No instrument stands out as a dominant comparative failure source in the current data.';
                 }
                 return `${context.dominantTool.name} appears on ${context.dominantTool.failed} failed measurements. I would verify zero, calibration, and repeatability on that instrument before making process changes.`;
+            }
+
+            if (q.includes('source') || q.includes('scan') || q.includes('cmm') || q.includes('program')) {
+                if (context.singleSourceContext && context.sourceSummary) {
+                    return `All current data came through ${context.sourceSummary.sourceType}${context.sourceSummary.sourceName ? ` (${context.sourceSummary.sourceName})` : ''}. That means the useful questions are feature drift, program alignment, fixture/setup stability, and independent confirmation on a second method rather than source concentration.`;
+                }
+                if (context.sourceSignalActionable && context.dominantSource) {
+                    return `${context.dominantSource.sourceType}${context.dominantSource.sourceName ? ` (${context.dominantSource.sourceName})` : ''} carries ${context.dominantSource.failed} of ${context.failedParts.length} failed units, so source-specific variation is worth investigating.`;
+                }
+                return 'No single source stream stands out strongly enough yet to call it a dominant driver.';
             }
 
             if (q.includes('trend') || q.includes('drift')) {
@@ -7013,11 +7127,19 @@
                 if (context.measurementSystemSignal) {
                     return `Start with measurement-system containment: cross-check failed parts with another operator and another instrument, verify ${context.dominantTool?.name || 'the dominant instrument'}, and only adjust the process if the alternate inspection confirms true drift on ${context.topFeature?.name || 'the critical feature'}.`;
                 }
+                if (context.automatedSourceOnly) {
+                    return `For this automated dataset, focus first on ${context.topFeature?.name || 'the highest-risk feature'}, confirm the fail condition on an independent method, then review the source program, alignment, fixturing, and process setup before making corrections.`;
+                }
                 return `Focus on ${context.topFeature?.name || 'the highest-risk feature'}, confirm the side of drift, inspect process/tooling condition, and run 3 to 5 confirmation parts after any adjustment.`;
             }
 
             if (q.includes('summary') || q.includes('overall')) {
-                return `Yield is ${context.yieldPct}% across ${context.total} units. ${context.topFeature ? `${context.topFeature.name} is the main risk feature, drifting ${context.topFeature.direction}.` : 'No single feature dominates yet.'} ${context.measurementSystemSignal ? 'Failures are also concentrated by inspector/tool, so measurement variation may be involved.' : 'The current data leans more toward a process-side issue than a measurement-system issue.'}`;
+                const signalText = context.measurementSystemSignal
+                    ? 'Failures are concentrated by operator/instrument in a meaningful comparative way, so measurement variation may be involved.'
+                    : context.automatedSourceOnly
+                        ? 'This is an automated single-source dataset, so the stronger signal is feature/process behavior rather than operator concentration.'
+                        : 'The current data leans more toward a process-side issue than a measurement-system issue.';
+                return `Yield is ${context.yieldPct}% across ${context.total} units. ${context.topFeature ? `${context.topFeature.name} is the main risk feature, drifting ${context.topFeature.direction}.` : 'No single feature dominates yet.'} ${signalText}`;
             }
 
             return `I can answer questions about overall yield, feature-specific drift, inspector concentration, tool concentration, and recommended corrective actions.`;
