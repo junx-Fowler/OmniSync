@@ -184,16 +184,16 @@
         </div>
     </div>
 
-    <header class="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md z-30 relative border-b-2 border-blue-500">
-        <div class="z-10 w-1/4">
+    <header class="bg-slate-900 text-white p-4 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 shadow-md z-30 relative border-b-2 border-blue-500">
+        <div class="z-10 min-w-0">
             <h1 class="text-xl font-bold italic">OmniSync <span class="bg-purple-600 text-[10px] px-2 py-0.5 rounded not-italic font-black">PRO</span><span class="text-[10px] text-blue-400 ml-2 not-italic tracking-widest font-black">REV 5.1</span></h1>
         </div>
-        <div class="absolute left-1/2 transform -translate-x-1/2 pointer-events-none">
+        <div class="justify-self-center pointer-events-none px-3">
             <img src="./Fowler-Logo.png" alt="Fowler" onerror="this.style.display='none'; this.nextElementSibling.classList.remove('hidden');" class="h-10 object-contain drop-shadow-md">
             <div class="hidden h-10 px-4 border border-slate-500 rounded bg-slate-800/80 text-white text-sm font-black uppercase tracking-[0.25em] flex items-center">Fowler</div>
         </div>
-        <div class="flex items-center justify-end z-10 w-[45%]">
-            <div class="flex items-center gap-2">
+        <div class="flex items-center justify-end z-10 min-w-0">
+            <div class="flex items-center justify-end gap-2 flex-wrap max-w-full">
             <button onclick="openSettingsPage()" id="btn-settings" class="flex flex-row items-center px-3 py-1.5 rounded-md text-sm font-bold text-slate-300 hover:text-white bg-slate-800 border border-slate-700 transition-all whitespace-nowrap">
                     <svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -201,7 +201,7 @@
                     </svg>
                     SETTINGS
                 </button>
-            <div class="bg-slate-800 p-1 rounded-lg flex space-x-1 border border-slate-700">
+            <div class="bg-slate-800 p-1 rounded-lg flex flex-wrap justify-end gap-1 border border-slate-700 max-w-full">
                 <button onclick="setMode('PLAN')" id="btn-mode-plan" class="flex flex-row items-center px-4 py-1.5 rounded-md text-sm font-bold text-slate-400 transition-all whitespace-nowrap">
                     <svg class="w-4 h-4 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M9 4h6"/>
@@ -3099,11 +3099,11 @@
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div class="border border-slate-200 rounded px-3 py-2 bg-slate-50">
-                                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Bluetooth Name</p>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Linked Device Name</p>
                                 <p class="text-sm font-bold text-[#1C355E] mt-1">${escapeHtml(item.bluetoothName || 'Not linked')}</p>
                             </div>
                             <div class="border border-slate-200 rounded px-3 py-2 bg-slate-50">
-                                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Bluetooth ID</p>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500">Linked Device ID</p>
                                 <p class="text-[11px] font-bold text-[#1C355E] mt-1 break-all">${escapeHtml(item.bluetoothId || 'Not linked')}</p>
                             </div>
                         </div>
@@ -3120,7 +3120,8 @@
                                 <input type="file" id="instrument-photo-${type}-${index}" accept="image/*" class="hidden" onchange="handleInstrumentPhotoUpload(event, '${type}', ${index})">
                                 <button onclick="document.getElementById('instrument-photo-${type}-${index}').click()" class="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-colors">Photo</button>
                                 <button onclick="addCalibrationRecord('${type}', ${index})" class="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-colors">Add Record</button>
-                                <button onclick="scanBluetoothDevice('${type}', ${index})" class="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-blue-100 transition-colors">Link Bluetooth</button>
+                                <button onclick="scanBluetoothDevice('${type}', ${index})" class="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-blue-100 transition-colors">Link Device</button>
+                                <button onclick="unlinkBluetoothDevice('${type}', ${index})" class="bg-slate-50 border border-slate-300 text-slate-700 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-slate-100 transition-colors">Unlink</button>
                                 <button onclick="deleteSettingItem('${type}', ${index})" class="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-red-100 transition-colors">Delete</button>
                             </div>
                         </div>
@@ -3233,42 +3234,158 @@
             renderInstrumentsPage();
         }
 
+        function getLinkedInstrumentList(type) {
+            return type === 'tools' ? getToolCatalog() : getGageCatalog();
+        }
+
+        function getInstrumentLinkTransport(item = {}) {
+            const id = String(item.bluetoothId || '').trim();
+            if (id.startsWith('hid:')) return 'HID';
+            if (id) return 'BLUETOOTH';
+            return '';
+        }
+
+        function instrumentPrefersHidLink(item = {}) {
+            const type = String(item.type || '').trim().toLowerCase();
+            return ['caliper', 'micrometer', 'indicator', 'height gage', 'bore gage'].includes(type);
+        }
+
+        function buildHidDeviceId(device) {
+            return [
+                'hid',
+                Number(device?.vendorId || 0),
+                Number(device?.productId || 0),
+                String(device?.productName || 'Unknown').trim()
+            ].join(':');
+        }
+
+        async function requestBluetoothLinkedDevice() {
+            if (!navigator.bluetooth?.requestDevice) return null;
+            const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
+            return {
+                id: (device.id || '').toString(),
+                name: (device.name || 'Bluetooth Device').toString(),
+                transport: 'BLUETOOTH',
+                deviceRef: device
+            };
+        }
+
+        async function requestHidLinkedDevice() {
+            if (!navigator.hid?.requestDevice) return null;
+            const devices = await navigator.hid.requestDevice({ filters: [] });
+            const device = devices?.[0];
+            if (!device) throw new DOMException('No HID device selected', 'NotFoundError');
+            return {
+                id: buildHidDeviceId(device),
+                name: (device.productName || 'HID Device').toString(),
+                transport: 'HID',
+                deviceRef: device
+            };
+        }
+
+        async function forgetLinkedDevice(item = {}) {
+            const linkId = String(item.bluetoothId || '').trim();
+            if (!linkId) return;
+            const transport = getInstrumentLinkTransport(item);
+            try {
+                if (transport === 'HID' && navigator.hid?.getDevices) {
+                    const hidDevices = await navigator.hid.getDevices();
+                    const match = hidDevices.find(device => buildHidDeviceId(device) === linkId);
+                    if (match) {
+                        if (match.opened && typeof match.close === 'function') {
+                            await match.close();
+                        }
+                        if (typeof match.forget === 'function') {
+                            await match.forget();
+                        }
+                    }
+                } else if (transport === 'BLUETOOTH' && navigator.bluetooth?.getDevices) {
+                    const btDevices = await navigator.bluetooth.getDevices();
+                    const match = btDevices.find(device => String(device.id || '') === linkId);
+                    if (match && typeof match.forget === 'function') {
+                        await match.forget();
+                    }
+                }
+            } catch (error) {
+                console.warn('Device forget/unpair was not completed in browser API.', error);
+            }
+        }
+
         async function scanBluetoothDevice(targetType = null, targetIndex = null) {
-            if (!navigator.bluetooth?.requestDevice) {
-                alert('Bluetooth scanning requires a supported browser over HTTPS or localhost.');
+            if (!navigator.bluetooth?.requestDevice && !navigator.hid?.requestDevice) {
+                alert('Device linking requires a supported browser over HTTPS or localhost.');
                 return;
             }
             try {
-                const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true });
-                const bluetoothId = (device.id || '').toString();
-                const bluetoothName = (device.name || 'Bluetooth Device').toString();
                 const resolvedType = targetType || document.getElementById('bluetooth-target-category')?.value || 'tools';
                 const list = resolvedType === 'tools' ? getToolCatalog() : getGageCatalog();
+                const targetItemIndex = targetIndex !== null ? Number(targetIndex) : -1;
+                const base = targetItemIndex >= 0 && list[targetItemIndex]
+                    ? list[targetItemIndex]
+                    : { name: '', brand: document.getElementById('bluetooth-default-brand')?.value || instrumentBrandOptions[0], type: document.getElementById('bluetooth-default-type')?.value || instrumentTypeOptions[0], size: '', serial: '', calibrationDue: '', lastCalibration: '', reminderDays: 14, bluetoothId: '', bluetoothName: '', photoDataUrl: '', active: true, records: [] };
+                const linkCandidate = base && instrumentPrefersHidLink(base) && navigator.hid?.requestDevice
+                    ? await requestHidLinkedDevice().catch(error => {
+                        if (error?.name !== 'NotFoundError' && error?.message !== 'Chooser cancelled') throw error;
+                        return null;
+                    })
+                    : null;
+                const deviceLink = linkCandidate || await requestBluetoothLinkedDevice();
+                if (!deviceLink) {
+                    alert('No compatible device was selected.');
+                    return;
+                }
+                const bluetoothId = (deviceLink?.id || '').toString();
+                const bluetoothName = deviceLink?.transport === 'HID'
+                    ? `${deviceLink.name} (HID)`
+                    : (deviceLink?.name || 'Bluetooth Device').toString();
                 const existingIndex = list.findIndex(item => item.bluetoothId && item.bluetoothId === bluetoothId);
-                const itemIndex = targetIndex !== null ? Number(targetIndex) : existingIndex;
-                const base = itemIndex >= 0 && list[itemIndex]
-                    ? list[itemIndex]
-                    : { name: bluetoothName, brand: document.getElementById('bluetooth-default-brand')?.value || instrumentBrandOptions[0], type: document.getElementById('bluetooth-default-type')?.value || instrumentTypeOptions[0], size: '', serial: '', calibrationDue: '', lastCalibration: '', reminderDays: 14, bluetoothId: '', bluetoothName: '', photoDataUrl: '', active: true, records: [] };
+                const resolvedIndex = targetIndex !== null ? Number(targetIndex) : existingIndex;
+                const resolvedBase = resolvedIndex >= 0 && list[resolvedIndex]
+                    ? list[resolvedIndex]
+                    : base;
                 const nextItem = {
-                    ...base,
-                    name: base.name && itemIndex >= 0 ? base.name : bluetoothName,
+                    ...resolvedBase,
+                    name: resolvedBase.name && resolvedIndex >= 0 ? resolvedBase.name : bluetoothName,
                     bluetoothId,
                     bluetoothName,
                     active: true
                 };
-                if (itemIndex >= 0 && list[itemIndex]) {
-                    list[itemIndex] = nextItem;
+                if (resolvedIndex >= 0 && list[resolvedIndex]) {
+                    list[resolvedIndex] = nextItem;
                 } else {
                     list.push(nextItem);
                 }
                 saveSettingList(resolvedType, list);
                 renderInstrumentsPage();
                 if (mode === 'EXECUTE') renderApp();
+                if (deviceLink?.transport === 'HID') {
+                    alert('HID-mode device linked successfully. The system saved it as a HID-connected instrument.');
+                }
             } catch (error) {
                 if (error?.name !== 'NotFoundError') {
-                    alert('Bluetooth scan was not completed.');
+                    console.error('Device link failed', error);
+                    alert('Device link was not completed.');
                 }
             }
+        }
+
+        async function unlinkBluetoothDevice(type, index) {
+            const list = getLinkedInstrumentList(type);
+            const item = list[index];
+            if (!item) return;
+            if (!item.bluetoothId && !item.bluetoothName) {
+                alert('This instrument is not linked to a device.');
+                return;
+            }
+            await forgetLinkedDevice(item);
+            list[index] = {
+                ...item,
+                bluetoothId: '',
+                bluetoothName: ''
+            };
+            saveSettingList(type, list);
+            renderInstrumentsPage();
+            if (mode === 'EXECUTE') renderApp();
         }
 
         function populateReportBuilderFields() {
