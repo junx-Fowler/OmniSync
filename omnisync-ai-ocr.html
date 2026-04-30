@@ -907,7 +907,11 @@
             discovered: [],
             lastError: '',
             lastScanAt: null,
-            pollTimer: null
+            pollTimer: null,
+            autoScanTimer: null,
+            bridgeMode: 'browser',
+            bridgeReachable: false,
+            bridgePort: 'COM3'
         };
         const bluetoothPresetCatalog = [
             {
@@ -3967,11 +3971,10 @@
             settingsOpen = false;
             reportBuilderOpen = false;
             renderInstrumentsPage();
-            if (navigator.bluetooth?.getDevices) {
-                await loadGrantedBluetoothDevices().catch(error => {
-                    console.warn('Could not auto-load granted Bluetooth devices.', error);
-                });
-            }
+            await loadGrantedBluetoothDevices().catch(error => {
+                console.warn('Could not auto-load Bluetooth devices.', error);
+            });
+            startBluetoothConsoleAutoScan();
             document.getElementById('blueprint-wrapper').classList.remove('hidden');
             document.getElementById('blueprint-wrapper').classList.add('w-full');
             document.getElementById('blueprint-wrapper').classList.remove('w-3/5', 'border-r');
@@ -4015,6 +4018,31 @@
                 signalStrength: '',
                 readingStatus: deviceRef ? 'Detected' : 'Preset'
             };
+        }
+
+        async function scanBluegigaLocalBridge() {
+            const response = await fetch(`http://127.0.0.1:8467/api/bluegiga/scan?port=${encodeURIComponent(bluetoothConsoleState.bridgePort)}&durationMs=2200`, {
+                cache: 'no-store'
+            });
+            if (!response.ok) {
+                throw new Error('Local Bluegiga bridge scan failed.');
+            }
+            return response.json();
+        }
+
+        function startBluetoothConsoleAutoScan() {
+            stopBluetoothConsoleAutoScan();
+            bluetoothConsoleState.autoScanTimer = setInterval(() => {
+                if (!instrumentsOpen || bluetoothConsoleState.scanning) return;
+                discoverBluetoothConsoleDevice().catch(error => console.warn('Bluetooth auto scan failed', error));
+            }, 4000);
+        }
+
+        function stopBluetoothConsoleAutoScan() {
+            if (bluetoothConsoleState.autoScanTimer) {
+                clearInterval(bluetoothConsoleState.autoScanTimer);
+                bluetoothConsoleState.autoScanTimer = null;
+            }
         }
 
         function formatBluetoothConsoleReading(value, connected = false) {
@@ -4135,6 +4163,9 @@
             const discovered = bluetoothConsoleState.discovered.filter(item => !item.connected);
             const connected = bluetoothConsoleState.discovered.filter(item => item.connected);
             const scanningLabel = bluetoothConsoleState.scanning ? 'Scanning...' : 'Ready';
+            const bridgeLabel = bluetoothConsoleState.bridgeReachable
+                ? `Bluegiga ${bluetoothConsoleState.bridgePort}`
+                : 'Browser Fallback';
 
             const discoveredCards = discovered.length ? discovered.map(item => `
                 <div title="Instrument: ${escapeHtml(item.name)}&#10;Mac address: ${escapeHtml(item.macAddress)}" class="bg-[#8aa4d5]/25 border border-blue-200/35 rounded p-3 w-[168px] min-h-[102px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
@@ -4175,7 +4206,10 @@
             panel.innerHTML = `
                 <div class="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-widest text-blue-200">
                     <span>Discover Bluetooth</span>
-                    <span class="${bluetoothConsoleState.scanning ? 'text-yellow-300 animate-pulse' : 'text-blue-200'}">${escapeHtml(scanningLabel)}</span>
+                    <div class="flex items-center gap-3">
+                        <span class="text-cyan-200">${escapeHtml(bridgeLabel)}</span>
+                        <span class="${bluetoothConsoleState.scanning ? 'text-yellow-300 animate-pulse' : 'text-blue-200'}">${escapeHtml(scanningLabel)}</span>
+                    </div>
                 </div>
                 <div class="border border-blue-200/35 rounded p-4 bg-[#15335e] min-h-[160px]">
                     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 items-start">${discoveredCards}</div>
@@ -4195,9 +4229,43 @@
             bluetoothConsoleState.lastError = '';
             renderBluetoothConsolePanel();
             try {
+                try {
+                    const bridgeResult = await scanBluegigaLocalBridge();
+                    const matches = [];
+                    for (const device of bridgeResult.devices || []) {
+                        const matchedPreset = findBluetoothPresetMatch(device.name || device.localName || '', device.macAddress || '');
+                        if (!matchedPreset) continue;
+                        matches.push({
+                            ...createBluetoothConsoleDeviceFromPreset(matchedPreset, null),
+                            macAddress: device.macAddress || matchedPreset.macAddress,
+                            bluetoothName: device.name || matchedPreset.name,
+                            signalStrength: Number.isFinite(Number(device.rssi)) ? `${device.rssi} dBm` : 'Bluegiga',
+                            liveReading: device.measurement || '',
+                            readingStatus: device.measurement ? 'Live Advertisement' : 'Discovered',
+                            deviceMatched: true,
+                            bridgeDevice: true,
+                            bridgeRawData: device.rawData || '',
+                            bridgeManufacturerData: device.manufacturerData || '',
+                            bridgeServiceData: device.serviceData || ''
+                        });
+                    }
+                    bluetoothConsoleState.discovered = matches;
+                    bluetoothConsoleState.bridgeReachable = true;
+                    bluetoothConsoleState.bridgeMode = 'bluegiga';
+                    bluetoothConsoleState.lastScanAt = Date.now();
+                    if (!matches.length) {
+                        bluetoothConsoleState.lastError = `Bluegiga ${bluetoothConsoleState.bridgePort} is scanning, but no preset Sylvac tools were seen.`;
+                    }
+                    stopBluetoothConsolePolling();
+                    return;
+                } catch (bridgeError) {
+                    bluetoothConsoleState.bridgeReachable = false;
+                    bluetoothConsoleState.bridgeMode = 'browser';
+                }
+
                 if (!navigator.bluetooth?.getDevices) {
                     bluetoothConsoleState.discovered = [];
-                    bluetoothConsoleState.lastError = 'This browser cannot enumerate granted Bluetooth devices.';
+                    bluetoothConsoleState.lastError = 'Local Bluegiga bridge is offline and this browser cannot enumerate granted Bluetooth devices.';
                     return;
                 }
                 const devices = await navigator.bluetooth.getDevices();
@@ -4243,6 +4311,20 @@
         async function connectBluetoothConsoleDevice(deviceId) {
             const deviceEntry = bluetoothConsoleState.discovered.find(item => item.id === deviceId);
             if (!deviceEntry) return;
+            if (bluetoothConsoleState.bridgeMode === 'bluegiga' || deviceEntry.bridgeDevice) {
+                bluetoothConsoleState.discovered = bluetoothConsoleState.discovered.map(item =>
+                    item.id === deviceId
+                        ? {
+                            ...item,
+                            connected: true,
+                            linkedInstrumentName: item.modelName,
+                            readingStatus: 'Discovered by Dongle'
+                        }
+                        : item
+                );
+                renderBluetoothConsolePanel();
+                return;
+            }
             const telemetry = await refreshBluetoothConsoleTelemetry(deviceEntry, { allowConnect: true });
             const isConnected = !!deviceEntry.deviceRef?.gatt?.connected;
             bluetoothConsoleState.discovered = bluetoothConsoleState.discovered.map(item =>
@@ -4287,6 +4369,8 @@
 
         function closeInstrumentsPage() {
             instrumentsOpen = false;
+            stopBluetoothConsoleAutoScan();
+            stopBluetoothConsolePolling();
             document.getElementById('instruments-view').classList.add('hidden');
             setMode(mode);
         }
