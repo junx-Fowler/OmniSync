@@ -372,8 +372,8 @@
                         <button onclick="closeInstrumentsPage()" class="bg-white border border-slate-400 text-slate-700 px-4 py-2 rounded text-[10px] font-bold uppercase shadow hover:bg-slate-100 transition-colors">Close</button>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-                    <div class="xl:col-span-2 bg-white rounded shadow border p-5">
+                <div class="space-y-6 mb-6">
+                    <div class="bg-white rounded shadow border p-5">
                         <div class="flex items-center justify-between gap-4">
                             <div>
                                 <h3 class="text-lg font-black text-[#1C355E] uppercase italic">Catalog Filters</h3>
@@ -406,22 +406,26 @@
                             </select>
                         </div>
                     </div>
-                    <div class="bg-white rounded shadow border p-5">
+                    <div class="bg-[#10284d] rounded shadow border border-[#295285] p-5 text-white overflow-hidden">
                         <div class="flex items-start justify-between gap-4">
                             <div>
-                                <h3 class="text-lg font-black text-[#1C355E] uppercase italic">Bluetooth Enrollment</h3>
-                                <p class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mt-1">Add or link Bluetooth-enabled tools and gages</p>
+                                <h3 class="text-lg font-black uppercase italic text-blue-50">Bluetooth Console</h3>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">Pair-mode BT4.0 discovery, connect, unlink, and live instrument status</p>
                             </div>
-                            <button onclick="scanBluetoothDevice()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest">Scan Device</button>
+                            <div class="flex items-center gap-2 flex-wrap justify-end">
+                                <button onclick="discoverBluetoothConsoleDevice()" class="bg-yellow-400 text-[#10284d] px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest shadow hover:bg-yellow-300 transition-colors">Discover Device</button>
+                                <button onclick="loadGrantedBluetoothDevices()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Load Granted</button>
+                            </div>
                         </div>
-                        <div class="grid grid-cols-1 gap-3 mt-4">
-                            <select id="bluetooth-target-category" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] outline-none focus:border-[#1C355E] bg-white">
-                                <option value="tools">Add as Tool</option>
-                                <option value="gages">Add as Gage</option>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                            <select id="bluetooth-target-category" class="border border-blue-300/30 rounded px-3 py-2 text-sm font-bold text-blue-50 outline-none focus:border-blue-200 bg-[#163561]">
+                                <option value="tools">Link as Tool</option>
+                                <option value="gages">Link as Gage</option>
                             </select>
-                            <select id="bluetooth-default-brand" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] outline-none focus:border-[#1C355E] bg-white"></select>
-                            <select id="bluetooth-default-type" class="border border-slate-300 rounded px-3 py-2 text-sm font-bold text-[#1C355E] outline-none focus:border-[#1C355E] bg-white"></select>
+                            <select id="bluetooth-default-brand" class="border border-blue-300/30 rounded px-3 py-2 text-sm font-bold text-blue-50 outline-none focus:border-blue-200 bg-[#163561]"></select>
+                            <select id="bluetooth-default-type" class="border border-blue-300/30 rounded px-3 py-2 text-sm font-bold text-blue-50 outline-none focus:border-blue-200 bg-[#163561]"></select>
                         </div>
+                        <div id="bluetooth-console-panel" class="mt-5 space-y-4"></div>
                     </div>
                 </div>
                 <div class="bg-white rounded shadow border p-5 mb-6">
@@ -897,6 +901,12 @@
             processedFiles: {},
             planName: '',
             lastImportAt: null
+        };
+        let bluetoothConsoleState = {
+            scanning: false,
+            discovered: [],
+            lastError: '',
+            lastScanAt: null
         };
 
         function isCloudSyncKey(key) {
@@ -2139,6 +2149,10 @@
                         reminderDays: Number.isFinite(Number(item?.reminderDays)) ? Math.max(0, Number(item.reminderDays)) : 14,
                         bluetoothId: (item?.bluetoothId || '').toString().trim(),
                         bluetoothName: (item?.bluetoothName || '').toString().trim(),
+                        bluetoothTransport: (item?.bluetoothTransport || '').toString().trim(),
+                        batteryLevel: item?.batteryLevel === '' || item?.batteryLevel === null || item?.batteryLevel === undefined ? '' : Number(item.batteryLevel),
+                        signalStrength: (item?.signalStrength || '').toString().trim(),
+                        liveReading: (item?.liveReading || '').toString().trim(),
                         photoDataUrl: (item?.photoDataUrl || '').toString(),
                         active: item?.active !== false,
                         records: normalizeCalibrationRecords(item?.records)
@@ -2182,6 +2196,10 @@
                         reminderDays: Number.isFinite(Number(item?.reminderDays)) ? Math.max(0, Number(item.reminderDays)) : 14,
                         bluetoothId: (item?.bluetoothId || '').toString().trim(),
                         bluetoothName: (item?.bluetoothName || '').toString().trim(),
+                        bluetoothTransport: (item?.bluetoothTransport || '').toString().trim(),
+                        batteryLevel: item?.batteryLevel === '' || item?.batteryLevel === null || item?.batteryLevel === undefined ? '' : Number(item.batteryLevel),
+                        signalStrength: (item?.signalStrength || '').toString().trim(),
+                        liveReading: (item?.liveReading || '').toString().trim(),
                         photoDataUrl: (item?.photoDataUrl || '').toString(),
                         active: item?.active !== false,
                         records: normalizeCalibrationRecords(item?.records)
@@ -3056,11 +3074,180 @@
             `).join('');
         }
 
+        function inferBluetoothDeviceType(name = '') {
+            const normalized = String(name || '').trim().toLowerCase();
+            if (normalized.includes('cal') || normalized.includes('caliper')) return 'Caliper';
+            if (normalized.includes('mic') || normalized.includes('micro')) return 'Micrometer';
+            if (normalized.includes('ind') || normalized.includes('indicator')) return 'Indicator';
+            if (normalized.includes('height')) return 'Height Gage';
+            if (normalized.includes('bore')) return 'Bore Gage';
+            return 'Instrument';
+        }
+
+        function inferBluetoothDeviceBrand(name = '') {
+            const normalized = String(name || '').trim().toLowerCase();
+            if (normalized.includes('sylvac') || normalized.includes('sylcom')) return 'Sylvac';
+            if (normalized.includes('fowler')) return 'Fowler';
+            if (normalized.includes('trimos')) return 'Trimos';
+            if (normalized.includes('bowers')) return 'Bowers';
+            if (normalized.includes('baty')) return 'Baty';
+            if (normalized.includes('aberlink')) return 'Aberlink';
+            return document.getElementById('bluetooth-default-brand')?.value || instrumentBrandOptions[0];
+        }
+
+        function upsertBluetoothConsoleDevice(deviceState) {
+            if (!deviceState?.id) return;
+            const existingIndex = bluetoothConsoleState.discovered.findIndex(item => item.id === deviceState.id);
+            if (existingIndex >= 0) {
+                bluetoothConsoleState.discovered[existingIndex] = { ...bluetoothConsoleState.discovered[existingIndex], ...deviceState };
+            } else {
+                bluetoothConsoleState.discovered.push(deviceState);
+            }
+        }
+
+        async function readBluetoothBatteryLevel(deviceRef) {
+            if (!deviceRef?.gatt) return null;
+            try {
+                const server = deviceRef.gatt.connected ? deviceRef.gatt : await deviceRef.gatt.connect();
+                const service = await server.getPrimaryService('battery_service');
+                const characteristic = await service.getCharacteristic('battery_level');
+                const value = await characteristic.readValue();
+                return value.getUint8(0);
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function getConnectedConsoleDeviceList() {
+            const linkedCatalog = [
+                ...getToolCatalog().map(item => ({ ...item, category: 'tools' })),
+                ...getGageCatalog().map(item => ({ ...item, category: 'gages' }))
+            ].filter(item => item.bluetoothId);
+            const consoleConnected = bluetoothConsoleState.discovered.filter(item => item.connected);
+            const merged = [];
+
+            linkedCatalog.forEach(item => {
+                const consoleState = consoleConnected.find(entry => entry.id === item.bluetoothId);
+                merged.push({
+                    id: item.bluetoothId,
+                    name: item.bluetoothName || item.name,
+                    instrumentName: item.name,
+                    type: item.type || inferBluetoothDeviceType(item.bluetoothName || item.name),
+                    brand: item.brand || inferBluetoothDeviceBrand(item.bluetoothName || item.name),
+                    transport: item.bluetoothTransport || getInstrumentLinkTransport(item) || 'BT4.0 Pair',
+                    batteryLevel: consoleState?.batteryLevel ?? item.batteryLevel ?? '',
+                    signalStrength: consoleState?.signalStrength || item.signalStrength || 'Unavailable',
+                    liveReading: consoleState?.liveReading || item.liveReading || 'Waiting for vendor stream',
+                    connected: !!consoleState?.connected,
+                    category: item.category
+                });
+            });
+
+            consoleConnected.forEach(item => {
+                if (!merged.some(existing => existing.id === item.id)) {
+                    merged.push({
+                        id: item.id,
+                        name: item.name,
+                        instrumentName: item.linkedInstrumentName || 'Unassigned Instrument',
+                        type: item.type || inferBluetoothDeviceType(item.name),
+                        brand: item.brand || inferBluetoothDeviceBrand(item.name),
+                        transport: item.transport || 'BT4.0 Pair',
+                        batteryLevel: item.batteryLevel ?? '',
+                        signalStrength: item.signalStrength || 'Unavailable',
+                        liveReading: item.liveReading || 'Waiting for vendor stream',
+                        connected: !!item.connected,
+                        category: item.category || 'tools'
+                    });
+                }
+            });
+
+            return merged;
+        }
+
+        function renderBluetoothConsolePanel() {
+            const panel = document.getElementById('bluetooth-console-panel');
+            if (!panel) return;
+            const discovered = bluetoothConsoleState.discovered.filter(item => !item.connected);
+            const connected = getConnectedConsoleDeviceList();
+            const scanningLabel = bluetoothConsoleState.scanning ? 'Scanning...' : 'Ready';
+
+            const discoveredCards = discovered.length ? discovered.map(item => `
+                <div class="bg-[#2a4e81] border border-blue-200/35 rounded p-3 min-h-[112px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                    <div class="flex items-start justify-between gap-2">
+                        <div>
+                            <div class="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-100">${escapeHtml(item.brand || 'BT4.0')}</div>
+                            <div class="text-sm font-black italic text-white mt-1">${escapeHtml(item.type || 'Instrument')}</div>
+                        </div>
+                        <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200">${escapeHtml(item.transport || 'BT4.0 Pair')}</div>
+                    </div>
+                    <div class="mt-3 text-2xl font-black text-blue-50">${escapeHtml(item.liveReading || '--.--')}</div>
+                    <div class="mt-2 flex items-center justify-between gap-2">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-blue-100">Signal ${escapeHtml(item.signalStrength || 'N/A')}</span>
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-200">${item.batteryLevel === '' || item.batteryLevel === null || item.batteryLevel === undefined ? 'Battery N/A' : `Battery ${escapeHtml(String(item.batteryLevel))}%`}</span>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between gap-2">
+                        <div class="text-[10px] font-bold uppercase tracking-widest text-blue-100 truncate">${escapeHtml(item.name)}</div>
+                        <button onclick="connectBluetoothConsoleDevice('${escapeHtml(item.id)}')" class="bg-yellow-400 text-[#10284d] px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-300 transition-colors">Connect</button>
+                    </div>
+                </div>
+            `).join('') : '<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">No discovered pair-mode instruments yet. Use Discover Device to add one instrument at a time from the browser chooser.</div>';
+
+            const connectedCards = connected.length ? connected.map(item => `
+                <div class="bg-[#183864] border border-blue-200/30 rounded p-4">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <div class="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-100">${escapeHtml(item.brand || 'Instrument')} • ${escapeHtml(item.transport || 'BT4.0 Pair')}</div>
+                            <div class="text-lg font-black italic text-white mt-1">${escapeHtml(item.instrumentName || item.name)}</div>
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">${escapeHtml(item.type || 'Instrument')} • ${escapeHtml(item.name || '')}</div>
+                        </div>
+                        <div class="flex items-center gap-2 flex-wrap justify-end">
+                            <span class="text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-widest ${item.connected ? 'bg-emerald-500/20 text-emerald-100 border border-emerald-300/30' : 'bg-slate-700/70 text-slate-100 border border-slate-500/40'}">${item.connected ? 'Connected' : 'Linked'}</span>
+                            <button onclick="disconnectBluetoothConsoleDevice('${escapeHtml(item.id)}')" class="bg-white/10 border border-blue-300/30 text-blue-50 px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Disconnect</button>
+                            <button onclick="unlinkBluetoothConsoleDeviceById('${escapeHtml(item.id)}', '${escapeHtml(item.category || 'tools')}')" class="bg-red-500/15 border border-red-300/30 text-red-100 px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-red-500/20 transition-colors">Unlink</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                        <div class="bg-white/5 rounded px-3 py-2 border border-white/10">
+                            <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-blue-200">Live Reading</div>
+                            <div class="text-xl font-black text-white mt-1">${escapeHtml(item.liveReading || 'Waiting for vendor stream')}</div>
+                        </div>
+                        <div class="bg-white/5 rounded px-3 py-2 border border-white/10">
+                            <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-blue-200">Signal</div>
+                            <div class="text-sm font-black text-white mt-1">${escapeHtml(item.signalStrength || 'Unavailable in browser')}</div>
+                        </div>
+                        <div class="bg-white/5 rounded px-3 py-2 border border-white/10">
+                            <div class="text-[9px] font-bold uppercase tracking-[0.18em] text-blue-200">Battery</div>
+                            <div class="text-sm font-black text-white mt-1">${item.batteryLevel === '' || item.batteryLevel === null || item.batteryLevel === undefined ? 'Not exposed' : `${escapeHtml(String(item.batteryLevel))}%`}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('') : '<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">No connected instruments yet.</div>';
+
+            panel.innerHTML = `
+                <div class="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-widest text-blue-200">
+                    <span>Discover Bluetooth</span>
+                    <span class="${bluetoothConsoleState.scanning ? 'text-yellow-300 animate-pulse' : 'text-blue-200'}">${escapeHtml(scanningLabel)}</span>
+                </div>
+                <div class="border border-blue-200/35 rounded p-4 bg-[#15335e]">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${discoveredCards}</div>
+                </div>
+                <div class="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">
+                    <span>Connected Instruments</span>
+                    <span>${connected.length} linked</span>
+                </div>
+                <div class="border border-blue-200/35 rounded p-4 bg-[#15335e] space-y-3">${connectedCards}</div>
+                <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200/80">
+                    Battery is shown when the device exposes the standard battery service. Signal strength and live measurement streaming depend on what the browser and the instrument firmware expose.
+                </div>
+            `;
+        }
+
         function renderInstrumentsPage() {
             const toolListEl = document.getElementById('tool-settings-list');
             const gageListEl = document.getElementById('gage-settings-list');
             if (!toolListEl || !gageListEl) return;
             populateInstrumentFilterControls();
+            renderBluetoothConsolePanel();
             const allTools = getToolCatalog();
             const allGages = getGageCatalog();
             const tools = getFilteredInstrumentList('tools');
@@ -3084,7 +3271,7 @@
                             </div>
                             <div class="flex flex-col items-end gap-2">
                                 <span class="text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-widest border ${calibration.className}">${escapeHtml(calibration.label)}</span>
-                                ${item.bluetoothId ? `<span class="text-[9px] px-2 py-1 rounded-full font-bold uppercase tracking-widest bg-blue-50 text-blue-700 border border-blue-200">Bluetooth Linked</span>` : ''}
+                                ${item.bluetoothId ? `<span class="text-[9px] px-2 py-1 rounded-full font-bold uppercase tracking-widest bg-blue-50 text-blue-700 border border-blue-200">${escapeHtml(item.bluetoothTransport || 'Device Linked')}</span>` : ''}
                             </div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -3311,6 +3498,181 @@
             }
         }
 
+        async function discoverBluetoothConsoleDevice() {
+            if (!navigator.bluetooth?.requestDevice) {
+                alert('Pair-mode Bluetooth discovery requires a supported browser over HTTPS or localhost.');
+                return;
+            }
+            bluetoothConsoleState.scanning = true;
+            bluetoothConsoleState.lastError = '';
+            renderBluetoothConsolePanel();
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: ['battery_service', 'device_information']
+                });
+                const batteryLevel = await readBluetoothBatteryLevel(device);
+                upsertBluetoothConsoleDevice({
+                    id: String(device.id || '').trim(),
+                    name: String(device.name || 'Bluetooth Device').trim() || 'Bluetooth Device',
+                    type: inferBluetoothDeviceType(device.name || ''),
+                    brand: inferBluetoothDeviceBrand(device.name || ''),
+                    transport: 'BT4.0 Pair',
+                    batteryLevel,
+                    signalStrength: 'Browser N/A',
+                    liveReading: 'Waiting for measurement stream',
+                    connected: false,
+                    deviceRef: device,
+                    linkedInstrumentName: ''
+                });
+                bluetoothConsoleState.lastScanAt = Date.now();
+            } catch (error) {
+                if (error?.name !== 'NotFoundError') {
+                    bluetoothConsoleState.lastError = 'Bluetooth discovery did not complete.';
+                    console.error('Bluetooth discovery failed', error);
+                }
+            } finally {
+                bluetoothConsoleState.scanning = false;
+                renderBluetoothConsolePanel();
+            }
+        }
+
+        async function loadGrantedBluetoothDevices() {
+            if (!navigator.bluetooth?.getDevices) {
+                alert('This browser does not support loading previously granted Bluetooth devices.');
+                return;
+            }
+            try {
+                const devices = await navigator.bluetooth.getDevices();
+                await Promise.all(devices.map(async (device) => {
+                    const batteryLevel = await readBluetoothBatteryLevel(device);
+                    upsertBluetoothConsoleDevice({
+                        id: String(device.id || '').trim(),
+                        name: String(device.name || 'Bluetooth Device').trim() || 'Bluetooth Device',
+                        type: inferBluetoothDeviceType(device.name || ''),
+                        brand: inferBluetoothDeviceBrand(device.name || ''),
+                        transport: 'BT4.0 Pair',
+                        batteryLevel,
+                        signalStrength: 'Browser N/A',
+                        liveReading: 'Waiting for measurement stream',
+                        connected: !!device.gatt?.connected,
+                        deviceRef: device
+                    });
+                }));
+                renderBluetoothConsolePanel();
+            } catch (error) {
+                console.error('Loading granted Bluetooth devices failed', error);
+                alert('Could not load granted Bluetooth devices.');
+            }
+        }
+
+        function updateLinkedInstrumentTelemetry(type, index, patch = {}) {
+            const list = type === 'tools' ? getToolCatalog() : getGageCatalog();
+            if (!list[index]) return;
+            list[index] = { ...list[index], ...patch };
+            saveSettingList(type, list);
+        }
+
+        async function connectBluetoothConsoleDevice(deviceId) {
+            const deviceEntry = bluetoothConsoleState.discovered.find(item => item.id === deviceId);
+            if (!deviceEntry) return;
+            const category = document.getElementById('bluetooth-target-category')?.value || 'tools';
+            const list = category === 'tools' ? getToolCatalog() : getGageCatalog();
+            const existingIndex = list.findIndex(item => item.bluetoothId === deviceId);
+            const targetIndex = existingIndex >= 0 ? existingIndex : -1;
+
+            if (deviceEntry.deviceRef?.gatt) {
+                try {
+                    if (!deviceEntry.deviceRef.gatt.connected) {
+                        await deviceEntry.deviceRef.gatt.connect();
+                    }
+                } catch (error) {
+                    console.warn('GATT connect did not complete cleanly', error);
+                }
+            }
+
+            const batteryLevel = await readBluetoothBatteryLevel(deviceEntry.deviceRef);
+            const nextItem = {
+                name: targetIndex >= 0 && list[targetIndex]?.name ? list[targetIndex].name : deviceEntry.name,
+                brand: targetIndex >= 0 && list[targetIndex]?.brand ? list[targetIndex].brand : (deviceEntry.brand || document.getElementById('bluetooth-default-brand')?.value || instrumentBrandOptions[0]),
+                type: targetIndex >= 0 && list[targetIndex]?.type ? list[targetIndex].type : (deviceEntry.type || document.getElementById('bluetooth-default-type')?.value || instrumentTypeOptions[0]),
+                size: targetIndex >= 0 ? (list[targetIndex]?.size || '') : '',
+                serial: targetIndex >= 0 ? (list[targetIndex]?.serial || '') : '',
+                calibrationDue: targetIndex >= 0 ? (list[targetIndex]?.calibrationDue || '') : '',
+                lastCalibration: targetIndex >= 0 ? (list[targetIndex]?.lastCalibration || '') : '',
+                reminderDays: targetIndex >= 0 ? (list[targetIndex]?.reminderDays || 14) : 14,
+                bluetoothId: deviceEntry.id,
+                bluetoothName: deviceEntry.name,
+                bluetoothTransport: 'BT4.0 Pair',
+                batteryLevel: batteryLevel ?? '',
+                signalStrength: 'Browser N/A',
+                liveReading: 'Waiting for vendor stream',
+                photoDataUrl: targetIndex >= 0 ? (list[targetIndex]?.photoDataUrl || '') : '',
+                active: true,
+                records: targetIndex >= 0 ? normalizeCalibrationRecords(list[targetIndex]?.records) : []
+            };
+
+            if (targetIndex >= 0) {
+                list[targetIndex] = { ...list[targetIndex], ...nextItem };
+            } else {
+                list.push(nextItem);
+            }
+            saveSettingList(category, list);
+
+            upsertBluetoothConsoleDevice({
+                ...deviceEntry,
+                connected: true,
+                batteryLevel: batteryLevel ?? deviceEntry.batteryLevel ?? '',
+                signalStrength: 'Browser N/A',
+                liveReading: 'Waiting for vendor stream',
+                transport: 'BT4.0 Pair',
+                linkedInstrumentName: nextItem.name,
+                category
+            });
+            renderInstrumentsPage();
+            if (mode === 'EXECUTE') renderApp();
+        }
+
+        async function disconnectBluetoothConsoleDevice(deviceId) {
+            const deviceEntry = bluetoothConsoleState.discovered.find(item => item.id === deviceId);
+            if (!deviceEntry) {
+                renderBluetoothConsolePanel();
+                return;
+            }
+            try {
+                if (deviceEntry.deviceRef?.gatt?.connected) {
+                    deviceEntry.deviceRef.gatt.disconnect();
+                }
+            } catch (error) {
+                console.warn('Device disconnect did not complete cleanly', error);
+            }
+            upsertBluetoothConsoleDevice({
+                ...deviceEntry,
+                connected: false,
+                liveReading: 'Waiting for measurement stream'
+            });
+            renderBluetoothConsolePanel();
+        }
+
+        async function unlinkBluetoothConsoleDeviceById(deviceId, category = 'tools') {
+            const list = category === 'gages' ? getGageCatalog() : getToolCatalog();
+            const index = list.findIndex(item => item.bluetoothId === deviceId);
+            if (index >= 0) {
+                await unlinkBluetoothDevice(category, index);
+            } else {
+                const consoleEntry = bluetoothConsoleState.discovered.find(item => item.id === deviceId);
+                if (consoleEntry) {
+                    upsertBluetoothConsoleDevice({
+                        ...consoleEntry,
+                        connected: false,
+                        linkedInstrumentName: '',
+                        category
+                    });
+                    renderBluetoothConsolePanel();
+                }
+            }
+        }
+
         async function scanBluetoothDevice(targetType = null, targetIndex = null) {
             if (!navigator.bluetooth?.requestDevice && !navigator.hid?.requestDevice) {
                 alert('Device linking requires a supported browser over HTTPS or localhost.');
@@ -3348,6 +3710,7 @@
                     name: resolvedBase.name && resolvedIndex >= 0 ? resolvedBase.name : bluetoothName,
                     bluetoothId,
                     bluetoothName,
+                    bluetoothTransport: deviceLink?.transport === 'HID' ? 'HID Mode' : 'BT4.0 Pair',
                     active: true
                 };
                 if (resolvedIndex >= 0 && list[resolvedIndex]) {
@@ -3356,6 +3719,20 @@
                     list.push(nextItem);
                 }
                 saveSettingList(resolvedType, list);
+                upsertBluetoothConsoleDevice({
+                    id: bluetoothId,
+                    name: bluetoothName,
+                    type: nextItem.type || inferBluetoothDeviceType(bluetoothName),
+                    brand: nextItem.brand || inferBluetoothDeviceBrand(bluetoothName),
+                    transport: nextItem.bluetoothTransport || (deviceLink?.transport === 'HID' ? 'HID Mode' : 'BT4.0 Pair'),
+                    batteryLevel: nextItem.batteryLevel ?? '',
+                    signalStrength: nextItem.signalStrength || 'Browser N/A',
+                    liveReading: nextItem.liveReading || (deviceLink?.transport === 'HID' ? 'Waiting for HID stream' : 'Waiting for measurement stream'),
+                    connected: !!deviceLink?.deviceRef?.gatt?.connected,
+                    deviceRef: deviceLink?.deviceRef || null,
+                    linkedInstrumentName: nextItem.name,
+                    category: resolvedType
+                });
                 renderInstrumentsPage();
                 if (mode === 'EXECUTE') renderApp();
                 if (deviceLink?.transport === 'HID') {
@@ -3381,9 +3758,22 @@
             list[index] = {
                 ...item,
                 bluetoothId: '',
-                bluetoothName: ''
+                bluetoothName: '',
+                bluetoothTransport: '',
+                batteryLevel: '',
+                signalStrength: '',
+                liveReading: ''
             };
             saveSettingList(type, list);
+            const discoveredIndex = bluetoothConsoleState.discovered.findIndex(entry => entry.id === item.bluetoothId);
+            if (discoveredIndex >= 0) {
+                bluetoothConsoleState.discovered[discoveredIndex] = {
+                    ...bluetoothConsoleState.discovered[discoveredIndex],
+                    connected: false,
+                    linkedInstrumentName: '',
+                    category: type
+                };
+            }
             renderInstrumentsPage();
             if (mode === 'EXECUTE') renderApp();
         }
