@@ -410,11 +410,11 @@
                         <div class="flex items-start justify-between gap-4">
                             <div>
                                 <h3 class="text-lg font-black uppercase italic text-blue-50">Bluetooth Console</h3>
-                                <p class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">Pair-mode BT4.0 discovery, connect, unlink, and live instrument status</p>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">Browser-managed BT4.0 pairing, linking, and granted-device status</p>
                             </div>
                             <div class="flex items-center gap-2 flex-wrap justify-end">
-                                <button onclick="discoverBluetoothConsoleDevice()" class="bg-yellow-400 text-[#10284d] px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest shadow hover:bg-yellow-300 transition-colors">Discover Device</button>
-                                <button onclick="loadGrantedBluetoothDevices()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Load Granted</button>
+                                <button onclick="discoverBluetoothConsoleDevice()" class="bg-yellow-400 text-[#10284d] px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest shadow hover:bg-yellow-300 transition-colors">Grant Device</button>
+                                <button onclick="loadGrantedBluetoothDevices()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Refresh Granted</button>
                             </div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
@@ -3190,7 +3190,7 @@
                         <button onclick="connectBluetoothConsoleDevice('${escapeHtml(item.id)}')" class="bg-yellow-400 text-[#10284d] px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-300 transition-colors">Connect</button>
                     </div>
                 </div>
-            `).join('') : '<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">No discovered pair-mode instruments yet. Use Discover Device to add one instrument at a time from the browser chooser.</div>';
+            `).join('') : '<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">No granted Bluetooth instruments yet. Use Grant Device to approve one instrument at a time from the browser chooser.</div>';
 
             const connectedCards = connected.length ? connected.map(item => `
                 <div class="bg-[#183864] border border-blue-200/30 rounded p-4">
@@ -3225,9 +3225,9 @@
 
             panel.innerHTML = `
                 <div class="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-widest text-blue-200">
-                    <span>Discover Bluetooth</span>
-                    <span class="${bluetoothConsoleState.scanning ? 'text-yellow-300 animate-pulse' : 'text-blue-200'}">${escapeHtml(scanningLabel)}</span>
-                </div>
+                            <span>Browser-Granted Bluetooth</span>
+                            <span class="${bluetoothConsoleState.scanning ? 'text-yellow-300 animate-pulse' : 'text-blue-200'}">${escapeHtml(scanningLabel)}</span>
+                        </div>
                 <div class="border border-blue-200/35 rounded p-4 bg-[#15335e]">
                     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">${discoveredCards}</div>
                 </div>
@@ -3236,6 +3236,9 @@
                     <span>${connected.length} linked</span>
                 </div>
                 <div class="border border-blue-200/35 rounded p-4 bg-[#15335e] space-y-3">${connectedCards}</div>
+                <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200/80">
+                    True background scanning like Sylcom requires a native desktop agent with direct OS Bluetooth access. This cloud browser app can show devices only after the browser grants them.
+                </div>
                 <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200/80">
                     Battery is shown when the device exposes the standard battery service. Signal strength and live measurement streaming depend on what the browser and the instrument firmware expose.
                 </div>
@@ -3872,7 +3875,7 @@
             setMode(mode);
         }
 
-        function openInstrumentsPage() {
+        async function openInstrumentsPage() {
             if (!canAccessAdminModules()) {
                 return;
             }
@@ -3880,6 +3883,11 @@
             settingsOpen = false;
             reportBuilderOpen = false;
             renderInstrumentsPage();
+            if (navigator.bluetooth?.getDevices) {
+                await loadGrantedBluetoothDevices().catch(error => {
+                    console.warn('Could not auto-load granted Bluetooth devices.', error);
+                });
+            }
             document.getElementById('blueprint-wrapper').classList.remove('hidden');
             document.getElementById('blueprint-wrapper').classList.add('w-full');
             document.getElementById('blueprint-wrapper').classList.remove('w-3/5', 'border-r');
