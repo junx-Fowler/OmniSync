@@ -906,7 +906,8 @@
             scanning: false,
             discovered: [],
             lastError: '',
-            lastScanAt: null
+            lastScanAt: null,
+            pollTimer: null
         };
         const bluetoothPresetCatalog = [
             {
@@ -917,10 +918,7 @@
                 type: 'Indicator',
                 brand: 'Sylvac',
                 transport: 'BT4.0',
-                photoSrc: './assets/bluetooth/sylvac-mark-vi-indicator.jpg',
-                reading: '0.0001',
-                batteryLevel: 68,
-                signalStrength: 'Good'
+                photoSrc: './assets/bluetooth/sylvac-mark-vi-indicator.jpg'
             },
             {
                 id: 'D0824840E093',
@@ -930,10 +928,7 @@
                 type: 'Caliper',
                 brand: 'Sylvac',
                 transport: 'BT4.0',
-                photoSrc: './assets/bluetooth/sylvac-ultra-cal-vi-caliper.jpg',
-                reading: '3.88',
-                batteryLevel: 74,
-                signalStrength: 'Strong'
+                photoSrc: './assets/bluetooth/sylvac-ultra-cal-vi-caliper.jpg'
             },
             {
                 id: 'D4271EC3A37A',
@@ -943,10 +938,7 @@
                 type: 'Micrometer',
                 brand: 'Sylvac',
                 transport: 'BT4.0',
-                photoSrc: './assets/bluetooth/sylvac-s-mike-pro.jpg',
-                reading: '0.023',
-                batteryLevel: 51,
-                signalStrength: 'Good'
+                photoSrc: './assets/bluetooth/sylvac-s-mike-pro.jpg'
             }
         ];
 
@@ -3994,34 +3986,152 @@
             document.getElementById('instruments-view').classList.remove('hidden');
         }
 
-        function cloneBluetoothPresetDevice(device) {
+        function normalizeBluetoothIdentity(value = '') {
+            return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        }
+
+        function findBluetoothPresetMatch(deviceName = '', deviceId = '') {
+            const normalizedName = String(deviceName || '').trim().toUpperCase();
+            const normalizedId = normalizeBluetoothIdentity(deviceId);
+            return bluetoothPresetCatalog.find(device =>
+                (device.name && device.name.toUpperCase() === normalizedName)
+                || (device.macAddress && normalizeBluetoothIdentity(device.macAddress) === normalizedId)
+            ) || null;
+        }
+
+        function createBluetoothConsoleDeviceFromPreset(preset, deviceRef = null) {
             return {
-                ...device,
-                id: device.id,
-                bluetoothId: device.id,
-                bluetoothName: device.name,
+                ...preset,
+                id: preset.id,
+                bluetoothId: preset.id,
+                bluetoothName: preset.name,
                 connected: false,
                 linkedInstrumentName: '',
-                liveReading: device.reading,
-                photoSrc: device.photoSrc
+                liveReading: '',
+                photoSrc: preset.photoSrc,
+                deviceRef,
+                deviceMatched: !!deviceRef,
+                batteryLevel: '',
+                signalStrength: '',
+                readingStatus: deviceRef ? 'Detected' : 'Preset'
             };
         }
 
-        function ensureBluetoothDemoSeed() {
-            if (!bluetoothConsoleState.discovered.length) {
-                bluetoothConsoleState.discovered = bluetoothPresetCatalog.map(cloneBluetoothPresetDevice);
+        function formatBluetoothConsoleReading(value, connected = false) {
+            if (value === null || value === undefined) return connected ? 'WAIT' : 'READY';
+            const text = String(value).trim();
+            if (!text) return connected ? 'WAIT' : 'READY';
+            return text;
+        }
+
+        async function tryReadRealBluetoothValue(deviceRef) {
+            if (!deviceRef?.gatt) return '';
+            try {
+                const server = deviceRef.gatt.connected ? deviceRef.gatt : await deviceRef.gatt.connect();
+                const services = await server.getPrimaryServices();
+                for (const service of services.slice(0, 8)) {
+                    const charsResult = await service.getCharacteristics();
+                    for (const characteristic of charsResult.slice(0, 10)) {
+                        if (!characteristic.properties?.read) continue;
+                        try {
+                            const value = await characteristic.readValue();
+                            const bytes = new Uint8Array(value.buffer);
+                            if (!bytes.length) continue;
+
+                            const ascii = new TextDecoder().decode(bytes).replace(/\0/g, '').trim();
+                            const asciiMatch = ascii.match(/-?\d+(?:\.\d+)?/);
+                            if (asciiMatch) return asciiMatch[0];
+
+                            if (bytes.length >= 4) {
+                                const f32 = value.getFloat32(0, true);
+                                if (Number.isFinite(f32) && Math.abs(f32) < 10000) return f32.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+                            }
+                            if (bytes.length >= 2) {
+                                const i16 = value.getInt16(0, true);
+                                if (Number.isFinite(i16) && Math.abs(i16) < 100000) {
+                                    const scaled = i16 / 1000;
+                                    return scaled.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+                                }
+                            }
+                        } catch (error) {}
+                    }
+                }
+            } catch (error) {}
+            return '';
+        }
+
+        async function refreshBluetoothConsoleTelemetry(deviceEntry, { allowConnect = false } = {}) {
+            if (!deviceEntry?.deviceRef?.gatt) {
+                return {
+                    liveReading: '',
+                    batteryLevel: '',
+                    signalStrength: deviceEntry?.deviceMatched ? 'Granted Device' : '',
+                    readingStatus: deviceEntry?.deviceMatched ? 'Detected' : 'Unavailable'
+                };
+            }
+
+            let connected = !!deviceEntry.deviceRef.gatt.connected;
+            if (!connected && allowConnect) {
+                try {
+                    await deviceEntry.deviceRef.gatt.connect();
+                    connected = true;
+                } catch (error) {
+                    console.warn('Bluetooth auto-connect did not complete cleanly', error);
+                }
+            }
+
+            if (!connected) {
+                return {
+                    liveReading: '',
+                    batteryLevel: '',
+                    signalStrength: 'Granted Device',
+                    readingStatus: 'Detected'
+                };
+            }
+
+            const [liveReading, batteryLevel] = await Promise.all([
+                tryReadRealBluetoothValue(deviceEntry.deviceRef),
+                readBluetoothBatteryLevel(deviceEntry.deviceRef)
+            ]);
+
+            return {
+                liveReading: liveReading || '',
+                batteryLevel: batteryLevel ?? '',
+                signalStrength: 'Granted Device',
+                readingStatus: liveReading ? 'Live' : 'Connected'
+            };
+        }
+
+        async function pollConnectedBluetoothConsoleReadings() {
+            const connected = bluetoothConsoleState.discovered.filter(item => item.connected && item.deviceRef);
+            if (!connected.length) return;
+            for (const item of connected) {
+                Object.assign(item, await refreshBluetoothConsoleTelemetry(item, { allowConnect: false }));
+            }
+            renderBluetoothConsolePanel();
+        }
+
+        function startBluetoothConsolePolling() {
+            stopBluetoothConsolePolling();
+            bluetoothConsoleState.pollTimer = setInterval(() => {
+                pollConnectedBluetoothConsoleReadings().catch(error => console.warn('Bluetooth polling failed', error));
+            }, 1200);
+        }
+
+        function stopBluetoothConsolePolling() {
+            if (bluetoothConsoleState.pollTimer) {
+                clearInterval(bluetoothConsoleState.pollTimer);
+                bluetoothConsoleState.pollTimer = null;
             }
         }
 
         function getConnectedConsoleDeviceList() {
-            ensureBluetoothDemoSeed();
             return bluetoothConsoleState.discovered.filter(item => item.connected);
         }
 
         function renderBluetoothConsolePanel() {
             const panel = document.getElementById('bluetooth-console-panel');
             if (!panel) return;
-            ensureBluetoothDemoSeed();
             const discovered = bluetoothConsoleState.discovered.filter(item => !item.connected);
             const connected = bluetoothConsoleState.discovered.filter(item => item.connected);
             const scanningLabel = bluetoothConsoleState.scanning ? 'Scanning...' : 'Ready';
@@ -4031,18 +4141,19 @@
                     <div class="flex items-start justify-between gap-2">
                         <div>
                             <div class="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-100">${escapeHtml(item.type)}</div>
-                            <div class="text-sm font-black text-white mt-1">${escapeHtml(item.liveReading || '0.00')}</div>
+                            <div class="text-sm font-black text-white mt-1">${escapeHtml(formatBluetoothConsoleReading(item.liveReading, false))}</div>
                         </div>
                         <div class="text-[9px] font-bold uppercase tracking-widest text-blue-200">${escapeHtml(item.transport)}</div>
                     </div>
                     <div class="mt-3 text-[10px] font-bold uppercase tracking-widest text-blue-100 truncate">${escapeHtml(item.name)}</div>
                     <div class="mt-1 text-[10px] font-bold uppercase tracking-widest text-blue-200 truncate">${escapeHtml(item.macAddress)}</div>
+                    <div class="mt-1 text-[9px] font-bold uppercase tracking-widest text-cyan-100 truncate">${escapeHtml(item.readingStatus || 'Detected')}</div>
                     <div class="mt-3 flex items-center justify-between gap-2">
-                        <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-200">${item.batteryLevel}%</span>
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-200">${item.batteryLevel === '' || item.batteryLevel === null || item.batteryLevel === undefined ? 'BAT --' : `BAT ${escapeHtml(String(item.batteryLevel))}%`}</span>
                         <button onclick="connectBluetoothConsoleDevice('${escapeHtml(item.id)}')" class="bg-yellow-400 text-[#10284d] px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-300 transition-colors">Connect</button>
                     </div>
                 </div>
-            `).join('') : '<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">No Sylvac devices currently shown in the nearby list.</div>';
+            `).join('') : `<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">${escapeHtml(bluetoothConsoleState.lastError || 'No matching Sylvac devices are currently available from granted browser Bluetooth devices.')}</div>`;
 
             const connectedCards = connected.length ? connected.map(item => `
                 <div class="bg-[#6f89c5]/20 border-2 border-lime-400 rounded p-3 w-[180px] min-h-[160px]">
@@ -4051,8 +4162,10 @@
                     <div class="mt-2 h-16 rounded bg-white/10 border border-white/10 flex items-center justify-center overflow-hidden">
                         <img src="${escapeHtml(item.photoSrc)}" alt="${escapeHtml(item.modelName)}" class="max-h-full max-w-full object-contain">
                     </div>
-                    <div class="mt-2 text-center text-2xl font-black text-blue-50">${escapeHtml(item.liveReading || '0.00')}</div>
+                    <div class="mt-2 text-center text-2xl font-black text-blue-50">${escapeHtml(formatBluetoothConsoleReading(item.liveReading, true))}</div>
                     <div class="mt-1 text-center text-[10px] font-bold uppercase tracking-widest text-blue-100">${escapeHtml(item.modelName)}</div>
+                    <div class="mt-1 text-center text-[9px] font-bold uppercase tracking-widest text-cyan-100">${escapeHtml(item.readingStatus || 'Connected')}</div>
+                    <div class="mt-1 text-center text-[9px] font-bold uppercase tracking-widest text-emerald-200">${item.batteryLevel === '' || item.batteryLevel === null || item.batteryLevel === undefined ? 'BAT --' : `BAT ${escapeHtml(String(item.batteryLevel))}%`}</div>
                     <div class="mt-3 flex items-center justify-center">
                         <button onclick="disconnectBluetoothConsoleDevice('${escapeHtml(item.id)}')" class="bg-yellow-400 text-[#10284d] px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-300 transition-colors">Disconnect</button>
                     </div>
@@ -4081,37 +4194,90 @@
             bluetoothConsoleState.scanning = true;
             bluetoothConsoleState.lastError = '';
             renderBluetoothConsolePanel();
-            await new Promise(resolve => setTimeout(resolve, 900));
-            bluetoothConsoleState.discovered = bluetoothPresetCatalog.map(cloneBluetoothPresetDevice);
-            bluetoothConsoleState.lastScanAt = Date.now();
-            bluetoothConsoleState.scanning = false;
-            renderBluetoothConsolePanel();
+            try {
+                if (!navigator.bluetooth?.getDevices) {
+                    bluetoothConsoleState.discovered = [];
+                    bluetoothConsoleState.lastError = 'This browser cannot enumerate granted Bluetooth devices.';
+                    return;
+                }
+                const devices = await navigator.bluetooth.getDevices();
+                const matches = [];
+                for (const device of devices) {
+                    const matchedPreset = findBluetoothPresetMatch(device.name || '', device.id || '');
+                    if (!matchedPreset) continue;
+                    const baseEntry = {
+                        ...createBluetoothConsoleDeviceFromPreset(matchedPreset, device),
+                        connected: !!device.gatt?.connected,
+                        deviceMatched: true
+                    };
+                    const telemetry = await refreshBluetoothConsoleTelemetry(baseEntry, { allowConnect: false });
+                    matches.push({
+                        ...baseEntry,
+                        ...telemetry
+                    });
+                }
+                bluetoothConsoleState.discovered = matches;
+                bluetoothConsoleState.lastScanAt = Date.now();
+                if (!matches.length) {
+                    bluetoothConsoleState.lastError = 'No granted browser Bluetooth devices matched the preset Sylvac tools.';
+                }
+                if (matches.some(item => item.connected)) {
+                    startBluetoothConsolePolling();
+                } else {
+                    stopBluetoothConsolePolling();
+                }
+            } catch (error) {
+                bluetoothConsoleState.discovered = [];
+                bluetoothConsoleState.lastError = 'Bluetooth scan could not read the granted device list.';
+                console.error('Bluetooth granted-device scan failed', error);
+            } finally {
+                bluetoothConsoleState.scanning = false;
+                renderBluetoothConsolePanel();
+            }
         }
 
         async function loadGrantedBluetoothDevices() {
-            bluetoothConsoleState.discovered = bluetoothPresetCatalog.map(cloneBluetoothPresetDevice);
-            bluetoothConsoleState.lastError = '';
-            bluetoothConsoleState.scanning = false;
-            renderBluetoothConsolePanel();
+            await discoverBluetoothConsoleDevice();
         }
 
         async function connectBluetoothConsoleDevice(deviceId) {
-            ensureBluetoothDemoSeed();
+            const deviceEntry = bluetoothConsoleState.discovered.find(item => item.id === deviceId);
+            if (!deviceEntry) return;
+            const telemetry = await refreshBluetoothConsoleTelemetry(deviceEntry, { allowConnect: true });
+            const isConnected = !!deviceEntry.deviceRef?.gatt?.connected;
             bluetoothConsoleState.discovered = bluetoothConsoleState.discovered.map(item =>
                 item.id === deviceId
-                    ? { ...item, connected: true, linkedInstrumentName: item.modelName, liveReading: item.reading }
+                    ? {
+                        ...item,
+                        connected: isConnected,
+                        linkedInstrumentName: item.modelName,
+                        ...telemetry
+                    }
                     : item
             );
+            if (isConnected) {
+                startBluetoothConsolePolling();
+            }
             renderBluetoothConsolePanel();
         }
 
         async function disconnectBluetoothConsoleDevice(deviceId) {
-            ensureBluetoothDemoSeed();
+            const deviceEntry = bluetoothConsoleState.discovered.find(item => item.id === deviceId);
+            if (deviceEntry?.deviceRef?.gatt?.connected) {
+                try {
+                    deviceEntry.deviceRef.gatt.disconnect();
+                } catch (error) {
+                    console.warn('Bluetooth disconnect did not complete cleanly', error);
+                }
+            }
             bluetoothConsoleState.discovered = bluetoothConsoleState.discovered.map(item =>
                 item.id === deviceId
-                    ? { ...item, connected: false }
+                    ? { ...item, connected: false, liveReading: '' }
                     : item
             );
+            if (!bluetoothConsoleState.discovered.some(item => item.connected)) {
+                stopBluetoothConsolePolling();
+            }
             renderBluetoothConsolePanel();
         }
 
