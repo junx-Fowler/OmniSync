@@ -410,9 +410,10 @@
                         <div class="flex items-start justify-between gap-4">
                             <div>
                                 <h3 class="text-lg font-black uppercase italic text-blue-50">Bluetooth Console</h3>
-                                <p class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">Browser-managed BT4.0 pairing, linking, and granted-device status</p>
+                                <p class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">Bluegiga COM scanning with Web Serial when available, then local bridge fallback</p>
                             </div>
                             <div class="flex items-center gap-2 flex-wrap justify-end">
+                                <button onclick="grantBluegigaSerialPort()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Grant COM Port</button>
                                 <button onclick="discoverBluetoothConsoleDevice()" class="bg-yellow-400 text-[#10284d] px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest shadow hover:bg-yellow-300 transition-colors">Scan Nearby</button>
                                 <button onclick="loadGrantedBluetoothDevices()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Reset List</button>
                             </div>
@@ -911,7 +912,8 @@
             autoScanTimer: null,
             bridgeMode: 'browser',
             bridgeReachable: false,
-            bridgePort: 'COM3'
+            bridgePort: 'COM3',
+            serialPortRef: null
         };
         const bluetoothPresetCatalog = [
             {
@@ -4020,6 +4022,199 @@
             };
         }
 
+        function decodeBluegigaMeasurement(serviceDataValue = '') {
+            const normalized = String(serviceDataValue || '').replace(/[^A-Fa-f0-9]/g, '');
+            if (normalized.length < 8) return '';
+            try {
+                const bytes = normalized.match(/.{1,2}/g).map(part => parseInt(part, 16));
+                const view = new DataView(new ArrayBuffer(4));
+                bytes.slice(0, 4).forEach((byte, index) => view.setUint8(index, byte));
+                const raw = view.getInt32(0, true);
+                const scaled = raw / 1000;
+                if (!Number.isFinite(scaled) || Math.abs(scaled) > 100000) return '';
+                return scaled.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+            } catch (error) {
+                return '';
+            }
+        }
+
+        function parseBluegigaAdvertisementData(dataBytes = []) {
+            const bytes = Array.from(dataBytes || []);
+            const parsed = {
+                localName: '',
+                manufacturerData: '',
+                serviceData: '',
+                serviceDataUuid: '',
+                serviceDataValue: '',
+                measurement: '',
+                rawData: bytes.map(byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase()
+            };
+
+            let index = 0;
+            while (index < bytes.length) {
+                const length = bytes[index];
+                if (!length) break;
+                const type = bytes[index + 1];
+                const start = index + 2;
+                const end = start + Math.max(length - 1, 0);
+                const value = bytes.slice(start, end);
+                if (type === 0x08 || type === 0x09) {
+                    parsed.localName = new TextDecoder().decode(new Uint8Array(value)).replace(/\0/g, '').trim();
+                } else if (type === 0x16) {
+                    parsed.serviceData = value.map(byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+                    if (value.length >= 2) {
+                        parsed.serviceDataUuid = `${value[1].toString(16).padStart(2, '0')}${value[0].toString(16).padStart(2, '0')}`.toUpperCase();
+                        parsed.serviceDataValue = value.slice(2).map(byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+                        if (parsed.serviceDataUuid === '5000') {
+                            parsed.measurement = decodeBluegigaMeasurement(parsed.serviceDataValue);
+                        }
+                    }
+                } else if (type === 0xFF) {
+                    parsed.manufacturerData = value.map(byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+                }
+                index += length + 1;
+            }
+
+            return parsed;
+        }
+
+        function parseBluegigaScanFrames(byteArray = []) {
+            const bytes = Uint8Array.from(byteArray || []);
+            const devices = new Map();
+            let offset = 0;
+            while (offset + 4 <= bytes.length) {
+                const header0 = bytes[offset];
+                const payloadLength = ((header0 & 0x07) << 8) + bytes[offset + 1];
+                const classId = bytes[offset + 2];
+                const methodId = bytes[offset + 3];
+                const frameLength = 4 + payloadLength;
+                if (offset + frameLength > bytes.length) break;
+                const payload = bytes.slice(offset + 4, offset + frameLength);
+                const isEvent = !!(header0 & 0x80);
+                if (isEvent && classId === 0x06 && methodId === 0x00 && payload.length >= 11) {
+                    const rssiByte = payload[0];
+                    const rssi = rssiByte > 127 ? rssiByte - 256 : rssiByte;
+                    const packetType = payload[1];
+                    const senderBytes = Array.from(payload.slice(2, 8)).reverse();
+                    const macAddress = senderBytes.map(byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+                    const addressType = payload[8];
+                    const bond = payload[9];
+                    const dataLength = payload[10];
+                    const advData = Array.from(payload.slice(11, 11 + dataLength));
+                    const parsed = parseBluegigaAdvertisementData(advData);
+                    devices.set(macAddress, {
+                        name: parsed.localName || macAddress,
+                        macAddress,
+                        rssi,
+                        packetType,
+                        addressType,
+                        bond,
+                        localName: parsed.localName,
+                        manufacturerData: parsed.manufacturerData,
+                        serviceData: parsed.serviceData,
+                        serviceDataUuid: parsed.serviceDataUuid,
+                        serviceDataValue: parsed.serviceDataValue,
+                        measurement: parsed.measurement,
+                        rawData: parsed.rawData,
+                        scannedVia: 'Web Serial Bluegiga'
+                    });
+                }
+                offset += frameLength;
+            }
+            return Array.from(devices.values());
+        }
+
+        async function writeBluegigaSerialCommand(writer, bytes) {
+            await writer.write(Uint8Array.from(bytes));
+            await new Promise(resolve => setTimeout(resolve, 40));
+        }
+
+        function chooseBluegigaSerialPort(ports = []) {
+            return ports.find(port => {
+                const info = port.getInfo ? port.getInfo() : {};
+                return info.usbVendorId === 0x2458 || info.usbProductId === 0x0001;
+            }) || ports[0] || null;
+        }
+
+        async function grantBluegigaSerialPort() {
+            if (!navigator.serial?.requestPort) {
+                bluetoothConsoleState.lastError = 'Web Serial is not available in this browser.';
+                renderBluetoothConsolePanel();
+                return;
+            }
+            try {
+                const port = await navigator.serial.requestPort({
+                    filters: [{ usbVendorId: 0x2458, usbProductId: 0x0001 }, { usbVendorId: 0x2458 }]
+                });
+                bluetoothConsoleState.serialPortRef = port;
+                bluetoothConsoleState.lastError = '';
+                await discoverBluetoothConsoleDevice();
+            } catch (error) {
+                bluetoothConsoleState.lastError = 'COM port access was not granted.';
+                renderBluetoothConsolePanel();
+            }
+        }
+
+        async function scanBluegigaWebSerial(durationMs = 2200) {
+            if (!navigator.serial?.getPorts) {
+                throw new Error('Web Serial is not available in this browser.');
+            }
+            const ports = await navigator.serial.getPorts();
+            const port = bluetoothConsoleState.serialPortRef || chooseBluegigaSerialPort(ports);
+            if (!port) {
+                throw new Error('No granted Bluegiga COM port is available yet.');
+            }
+            bluetoothConsoleState.serialPortRef = port;
+            const info = port.getInfo ? port.getInfo() : {};
+            let openedHere = false;
+            if (!port.readable || !port.writable) {
+                await port.open({
+                    baudRate: 115200,
+                    dataBits: 8,
+                    stopBits: 1,
+                    parity: 'none',
+                    flowControl: 'none'
+                });
+                openedHere = true;
+            }
+
+            const reader = port.readable.getReader();
+            const writer = port.writable.getWriter();
+            const collected = [];
+            const cancelTimer = setTimeout(() => {
+                reader.cancel().catch(() => {});
+            }, durationMs);
+
+            try {
+                await writeBluegigaSerialCommand(writer, [0x00, 0x00, 0x06, 0x04]);
+                await writeBluegigaSerialCommand(writer, [0x00, 0x05, 0x06, 0x07, 0xC8, 0x00, 0xC8, 0x00, 0x01]);
+                await writeBluegigaSerialCommand(writer, [0x00, 0x01, 0x06, 0x02, 0x02]);
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    if (value?.length) collected.push(...value);
+                }
+            } finally {
+                clearTimeout(cancelTimer);
+                try {
+                    await writeBluegigaSerialCommand(writer, [0x00, 0x00, 0x06, 0x04]);
+                } catch (error) {}
+                writer.releaseLock();
+                reader.releaseLock();
+                if (openedHere) {
+                    try { await port.close(); } catch (error) {}
+                }
+            }
+
+            return {
+                ok: true,
+                port: info.usbVendorId ? `USB ${info.usbVendorId.toString(16).toUpperCase()}:${(info.usbProductId || 0).toString(16).toUpperCase()}` : bluetoothConsoleState.bridgePort,
+                scannedAt: new Date().toISOString(),
+                devices: parseBluegigaScanFrames(collected)
+            };
+        }
+
         async function scanBluegigaLocalBridge() {
             const response = await fetch(`http://127.0.0.1:8467/api/bluegiga/scan?port=${encodeURIComponent(bluetoothConsoleState.bridgePort)}&durationMs=2200`, {
                 cache: 'no-store'
@@ -4163,9 +4358,9 @@
             const discovered = bluetoothConsoleState.discovered.filter(item => !item.connected);
             const connected = bluetoothConsoleState.discovered.filter(item => item.connected);
             const scanningLabel = bluetoothConsoleState.scanning ? 'Scanning...' : 'Ready';
-            const bridgeLabel = bluetoothConsoleState.bridgeReachable
-                ? `Bluegiga ${bluetoothConsoleState.bridgePort}`
-                : 'Browser Fallback';
+            const bridgeLabel = bluetoothConsoleState.bridgeMode === 'web-serial'
+                ? 'Web Serial'
+                : (bluetoothConsoleState.bridgeReachable ? `Bluegiga ${bluetoothConsoleState.bridgePort}` : 'Browser Fallback');
 
             const discoveredCards = discovered.length ? discovered.map(item => `
                 <div title="Instrument: ${escapeHtml(item.name)}&#10;Mac address: ${escapeHtml(item.macAddress)}" class="bg-[#8aa4d5]/25 border border-blue-200/35 rounded p-3 w-[168px] min-h-[102px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
@@ -4229,21 +4424,61 @@
             bluetoothConsoleState.lastError = '';
             renderBluetoothConsolePanel();
             try {
+                const previousById = new Map(bluetoothConsoleState.discovered.map(item => [item.id, item]));
+                try {
+                    const serialResult = await scanBluegigaWebSerial(2200);
+                    const matches = [];
+                    for (const device of serialResult.devices || []) {
+                        const matchedPreset = findBluetoothPresetMatch(device.name || device.localName || '', device.macAddress || '');
+                        if (!matchedPreset) continue;
+                        const previous = previousById.get(matchedPreset.id);
+                        matches.push({
+                            ...createBluetoothConsoleDeviceFromPreset(matchedPreset, null),
+                            macAddress: device.macAddress || matchedPreset.macAddress,
+                            bluetoothName: device.name || matchedPreset.name,
+                            signalStrength: Number.isFinite(Number(device.rssi)) ? `${device.rssi} dBm` : 'Bluegiga',
+                            liveReading: device.measurement || previous?.liveReading || '',
+                            readingStatus: device.measurement ? 'Live Advertisement' : (previous?.readingStatus || 'Discovered'),
+                            deviceMatched: true,
+                            bridgeDevice: true,
+                            connected: !!previous?.connected,
+                            linkedInstrumentName: previous?.linkedInstrumentName || '',
+                            bridgeRawData: device.rawData || '',
+                            bridgeManufacturerData: device.manufacturerData || '',
+                            bridgeServiceData: device.serviceData || ''
+                        });
+                    }
+                    bluetoothConsoleState.discovered = matches;
+                    bluetoothConsoleState.bridgeReachable = true;
+                    bluetoothConsoleState.bridgeMode = 'web-serial';
+                    bluetoothConsoleState.lastScanAt = Date.now();
+                    if (!matches.length) {
+                        bluetoothConsoleState.lastError = 'Web Serial scan is running, but no preset Sylvac tools were seen.';
+                    }
+                    stopBluetoothConsolePolling();
+                    return;
+                } catch (serialError) {
+                    bluetoothConsoleState.bridgeMode = 'browser';
+                }
+
                 try {
                     const bridgeResult = await scanBluegigaLocalBridge();
                     const matches = [];
                     for (const device of bridgeResult.devices || []) {
                         const matchedPreset = findBluetoothPresetMatch(device.name || device.localName || '', device.macAddress || '');
                         if (!matchedPreset) continue;
+                        const previous = previousById.get(matchedPreset.id);
                         matches.push({
                             ...createBluetoothConsoleDeviceFromPreset(matchedPreset, null),
                             macAddress: device.macAddress || matchedPreset.macAddress,
                             bluetoothName: device.name || matchedPreset.name,
                             signalStrength: Number.isFinite(Number(device.rssi)) ? `${device.rssi} dBm` : 'Bluegiga',
-                            liveReading: device.measurement || '',
-                            readingStatus: device.measurement ? 'Live Advertisement' : 'Discovered',
+                            liveReading: device.measurement || previous?.liveReading || '',
+                            readingStatus: device.measurement ? 'Live Advertisement' : (previous?.readingStatus || 'Discovered'),
                             deviceMatched: true,
                             bridgeDevice: true,
+                            connected: !!previous?.connected,
+                            linkedInstrumentName: previous?.linkedInstrumentName || '',
                             bridgeRawData: device.rawData || '',
                             bridgeManufacturerData: device.manufacturerData || '',
                             bridgeServiceData: device.serviceData || ''
@@ -4273,14 +4508,16 @@
                 for (const device of devices) {
                     const matchedPreset = findBluetoothPresetMatch(device.name || '', device.id || '');
                     if (!matchedPreset) continue;
+                    const previous = previousById.get(matchedPreset.id);
                     const baseEntry = {
                         ...createBluetoothConsoleDeviceFromPreset(matchedPreset, device),
-                        connected: !!device.gatt?.connected,
+                        connected: previous?.connected ?? !!device.gatt?.connected,
                         deviceMatched: true
                     };
                     const telemetry = await refreshBluetoothConsoleTelemetry(baseEntry, { allowConnect: false });
                     matches.push({
                         ...baseEntry,
+                        linkedInstrumentName: previous?.linkedInstrumentName || '',
                         ...telemetry
                     });
                 }
