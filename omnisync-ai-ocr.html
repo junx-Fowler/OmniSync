@@ -413,8 +413,8 @@
                                 <p class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">Browser-managed BT4.0 pairing, linking, and granted-device status</p>
                             </div>
                             <div class="flex items-center gap-2 flex-wrap justify-end">
-                                <button onclick="discoverBluetoothConsoleDevice()" class="bg-yellow-400 text-[#10284d] px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest shadow hover:bg-yellow-300 transition-colors">Discover Device</button>
-                                <button onclick="loadGrantedBluetoothDevices()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Refresh Granted</button>
+                                <button onclick="discoverBluetoothConsoleDevice()" class="bg-yellow-400 text-[#10284d] px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest shadow hover:bg-yellow-300 transition-colors">Scan Nearby</button>
+                                <button onclick="loadGrantedBluetoothDevices()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Reset List</button>
                             </div>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
@@ -908,6 +908,47 @@
             lastError: '',
             lastScanAt: null
         };
+        const bluetoothPresetCatalog = [
+            {
+                id: 'EADF5BCFFEF0',
+                name: 'SY289',
+                macAddress: 'EADF5BCFFEF0',
+                modelName: 'Mark VI Indicator 0.5"',
+                type: 'Indicator',
+                brand: 'Sylvac',
+                transport: 'BT4.0',
+                photoSrc: './assets/bluetooth/sylvac-mark-vi-indicator.jpg',
+                reading: '0.0001',
+                batteryLevel: 68,
+                signalStrength: 'Good'
+            },
+            {
+                id: 'D0824840E093',
+                name: 'SY',
+                macAddress: 'D0824840E093',
+                modelName: 'Ultra Cal VI 6" Caliper',
+                type: 'Caliper',
+                brand: 'Sylvac',
+                transport: 'BT4.0',
+                photoSrc: './assets/bluetooth/sylvac-ultra-cal-vi-caliper.jpg',
+                reading: '3.88',
+                batteryLevel: 74,
+                signalStrength: 'Strong'
+            },
+            {
+                id: 'D4271EC3A37A',
+                name: 'SY276',
+                macAddress: 'D4271EC3A37A',
+                modelName: 'S_Mike Pro 30mm Micrometer',
+                type: 'Micrometer',
+                brand: 'Sylvac',
+                transport: 'BT4.0',
+                photoSrc: './assets/bluetooth/sylvac-s-mike-pro.jpg',
+                reading: '0.023',
+                batteryLevel: 51,
+                signalStrength: 'Good'
+            }
+        ];
 
         function isCloudSyncKey(key) {
             return typeof key === 'string' && key.startsWith('omnisync_');
@@ -3951,6 +3992,131 @@
             document.getElementById('settings-view').classList.add('hidden');
             document.getElementById('report-builder-view').classList.add('hidden');
             document.getElementById('instruments-view').classList.remove('hidden');
+        }
+
+        function cloneBluetoothPresetDevice(device) {
+            return {
+                ...device,
+                id: device.id,
+                bluetoothId: device.id,
+                bluetoothName: device.name,
+                connected: false,
+                linkedInstrumentName: '',
+                liveReading: device.reading,
+                photoSrc: device.photoSrc
+            };
+        }
+
+        function ensureBluetoothDemoSeed() {
+            if (!bluetoothConsoleState.discovered.length) {
+                bluetoothConsoleState.discovered = bluetoothPresetCatalog.map(cloneBluetoothPresetDevice);
+            }
+        }
+
+        function getConnectedConsoleDeviceList() {
+            ensureBluetoothDemoSeed();
+            return bluetoothConsoleState.discovered.filter(item => item.connected);
+        }
+
+        function renderBluetoothConsolePanel() {
+            const panel = document.getElementById('bluetooth-console-panel');
+            if (!panel) return;
+            ensureBluetoothDemoSeed();
+            const discovered = bluetoothConsoleState.discovered.filter(item => !item.connected);
+            const connected = bluetoothConsoleState.discovered.filter(item => item.connected);
+            const scanningLabel = bluetoothConsoleState.scanning ? 'Scanning...' : 'Ready';
+
+            const discoveredCards = discovered.length ? discovered.map(item => `
+                <div title="Instrument: ${escapeHtml(item.name)}&#10;Mac address: ${escapeHtml(item.macAddress)}" class="bg-[#8aa4d5]/25 border border-blue-200/35 rounded p-3 w-[168px] min-h-[102px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                    <div class="flex items-start justify-between gap-2">
+                        <div>
+                            <div class="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-100">${escapeHtml(item.type)}</div>
+                            <div class="text-sm font-black text-white mt-1">${escapeHtml(item.liveReading || '0.00')}</div>
+                        </div>
+                        <div class="text-[9px] font-bold uppercase tracking-widest text-blue-200">${escapeHtml(item.transport)}</div>
+                    </div>
+                    <div class="mt-3 text-[10px] font-bold uppercase tracking-widest text-blue-100 truncate">${escapeHtml(item.name)}</div>
+                    <div class="mt-1 text-[10px] font-bold uppercase tracking-widest text-blue-200 truncate">${escapeHtml(item.macAddress)}</div>
+                    <div class="mt-3 flex items-center justify-between gap-2">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-200">${item.batteryLevel}%</span>
+                        <button onclick="connectBluetoothConsoleDevice('${escapeHtml(item.id)}')" class="bg-yellow-400 text-[#10284d] px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-300 transition-colors">Connect</button>
+                    </div>
+                </div>
+            `).join('') : '<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">No Sylvac devices currently shown in the nearby list.</div>';
+
+            const connectedCards = connected.length ? connected.map(item => `
+                <div class="bg-[#6f89c5]/20 border-2 border-lime-400 rounded p-3 w-[180px] min-h-[160px]">
+                    <div class="text-[11px] font-bold uppercase tracking-widest text-blue-100 truncate">${escapeHtml(item.name)}</div>
+                    <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200 truncate mt-1">${escapeHtml(item.macAddress)}</div>
+                    <div class="mt-2 h-16 rounded bg-white/10 border border-white/10 flex items-center justify-center overflow-hidden">
+                        <img src="${escapeHtml(item.photoSrc)}" alt="${escapeHtml(item.modelName)}" class="max-h-full max-w-full object-contain">
+                    </div>
+                    <div class="mt-2 text-center text-2xl font-black text-blue-50">${escapeHtml(item.liveReading || '0.00')}</div>
+                    <div class="mt-1 text-center text-[10px] font-bold uppercase tracking-widest text-blue-100">${escapeHtml(item.modelName)}</div>
+                    <div class="mt-3 flex items-center justify-center">
+                        <button onclick="disconnectBluetoothConsoleDevice('${escapeHtml(item.id)}')" class="bg-yellow-400 text-[#10284d] px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-300 transition-colors">Disconnect</button>
+                    </div>
+                </div>
+            `).join('') : '<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">No connected instruments yet.</div>';
+
+            panel.innerHTML = `
+                <div class="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-widest text-blue-200">
+                    <span>Discover Bluetooth</span>
+                    <span class="${bluetoothConsoleState.scanning ? 'text-yellow-300 animate-pulse' : 'text-blue-200'}">${escapeHtml(scanningLabel)}</span>
+                </div>
+                <div class="border border-blue-200/35 rounded p-4 bg-[#15335e] min-h-[160px]">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 items-start">${discoveredCards}</div>
+                </div>
+                <div class="flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">
+                    <span>Connected Instruments</span>
+                    <span>${connected.length} connected</span>
+                </div>
+                <div class="border border-blue-200/35 rounded p-4 bg-[#15335e] min-h-[190px]">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 items-start">${connectedCards}</div>
+                </div>
+            `;
+        }
+
+        async function discoverBluetoothConsoleDevice() {
+            bluetoothConsoleState.scanning = true;
+            bluetoothConsoleState.lastError = '';
+            renderBluetoothConsolePanel();
+            await new Promise(resolve => setTimeout(resolve, 900));
+            bluetoothConsoleState.discovered = bluetoothPresetCatalog.map(cloneBluetoothPresetDevice);
+            bluetoothConsoleState.lastScanAt = Date.now();
+            bluetoothConsoleState.scanning = false;
+            renderBluetoothConsolePanel();
+        }
+
+        async function loadGrantedBluetoothDevices() {
+            bluetoothConsoleState.discovered = bluetoothPresetCatalog.map(cloneBluetoothPresetDevice);
+            bluetoothConsoleState.lastError = '';
+            bluetoothConsoleState.scanning = false;
+            renderBluetoothConsolePanel();
+        }
+
+        async function connectBluetoothConsoleDevice(deviceId) {
+            ensureBluetoothDemoSeed();
+            bluetoothConsoleState.discovered = bluetoothConsoleState.discovered.map(item =>
+                item.id === deviceId
+                    ? { ...item, connected: true, linkedInstrumentName: item.modelName, liveReading: item.reading }
+                    : item
+            );
+            renderBluetoothConsolePanel();
+        }
+
+        async function disconnectBluetoothConsoleDevice(deviceId) {
+            ensureBluetoothDemoSeed();
+            bluetoothConsoleState.discovered = bluetoothConsoleState.discovered.map(item =>
+                item.id === deviceId
+                    ? { ...item, connected: false }
+                    : item
+            );
+            renderBluetoothConsolePanel();
+        }
+
+        async function unlinkBluetoothConsoleDeviceById(deviceId, category = 'tools') {
+            await disconnectBluetoothConsoleDevice(deviceId);
         }
 
         function closeInstrumentsPage() {
