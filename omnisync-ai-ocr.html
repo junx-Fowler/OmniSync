@@ -413,7 +413,7 @@
                                 <p class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">Browser-managed BT4.0 pairing, linking, and granted-device status</p>
                             </div>
                             <div class="flex items-center gap-2 flex-wrap justify-end">
-                                <button onclick="discoverBluetoothConsoleDevice()" class="bg-yellow-400 text-[#10284d] px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest shadow hover:bg-yellow-300 transition-colors">Grant Device</button>
+                                <button onclick="discoverBluetoothConsoleDevice()" class="bg-yellow-400 text-[#10284d] px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest shadow hover:bg-yellow-300 transition-colors">Discover Device</button>
                                 <button onclick="loadGrantedBluetoothDevices()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Refresh Granted</button>
                             </div>
                         </div>
@@ -3095,6 +3095,10 @@
             return document.getElementById('bluetooth-default-brand')?.value || instrumentBrandOptions[0];
         }
 
+        function isSylvacBluetoothDeviceName(name = '') {
+            return inferBluetoothDeviceBrand(name) === 'Sylvac';
+        }
+
         function upsertBluetoothConsoleDevice(deviceState) {
             if (!deviceState?.id) return;
             const existingIndex = bluetoothConsoleState.discovered.findIndex(item => item.id === deviceState.id);
@@ -3172,25 +3176,25 @@
             const scanningLabel = bluetoothConsoleState.scanning ? 'Scanning...' : 'Ready';
 
             const discoveredCards = discovered.length ? discovered.map(item => `
-                <div class="bg-[#2a4e81] border border-blue-200/35 rounded p-3 min-h-[112px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <div class="bg-[#8aa4d5]/20 border border-blue-200/35 rounded p-3 min-h-[112px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
                     <div class="flex items-start justify-between gap-2">
                         <div>
-                            <div class="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-100">${escapeHtml(item.brand || 'BT4.0')}</div>
-                            <div class="text-sm font-black italic text-white mt-1">${escapeHtml(item.type || 'Instrument')}</div>
+                            <div class="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-100">${escapeHtml(item.type || 'Instrument')}</div>
+                            <div class="text-sm font-black text-white mt-1">${escapeHtml(item.brand || 'Sylvac')}</div>
                         </div>
-                        <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200">${escapeHtml(item.transport || 'BT4.0 Pair')}</div>
+                        <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200">${escapeHtml(item.transport || 'BT4.0')}</div>
                     </div>
-                    <div class="mt-3 text-2xl font-black text-blue-50">${escapeHtml(item.liveReading || '--.--')}</div>
+                    <div class="mt-3 text-2xl font-black text-blue-50">${escapeHtml(item.liveReading || '0.00')}</div>
                     <div class="mt-2 flex items-center justify-between gap-2">
-                        <span class="text-[10px] font-bold uppercase tracking-widest text-blue-100">Signal ${escapeHtml(item.signalStrength || 'N/A')}</span>
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-blue-100">BT4.0</span>
                         <span class="text-[10px] font-bold uppercase tracking-widest text-emerald-200">${item.batteryLevel === '' || item.batteryLevel === null || item.batteryLevel === undefined ? 'Battery N/A' : `Battery ${escapeHtml(String(item.batteryLevel))}%`}</span>
                     </div>
                     <div class="mt-3 flex items-center justify-between gap-2">
-                        <div class="text-[10px] font-bold uppercase tracking-widest text-blue-100 truncate">${escapeHtml(item.name)}</div>
+                        <div class="text-[10px] font-bold uppercase tracking-widest text-blue-100 truncate">${escapeHtml(item.signalStrength || 'Signal N/A')}</div>
                         <button onclick="connectBluetoothConsoleDevice('${escapeHtml(item.id)}')" class="bg-yellow-400 text-[#10284d] px-3 py-1 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-300 transition-colors">Connect</button>
                     </div>
                 </div>
-            `).join('') : '<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">No granted Bluetooth instruments yet. Use Grant Device to approve one instrument at a time from the browser chooser.</div>';
+            `).join('') : `<div class="text-[11px] font-bold uppercase tracking-widest text-blue-200 border border-dashed border-blue-300/30 rounded p-4">${escapeHtml(bluetoothConsoleState.lastError || 'No Sylvac Bluetooth instruments are available yet. Use Discover Device and choose a Sylvac tool.')}</div>`;
 
             const connectedCards = connected.length ? connected.map(item => `
                 <div class="bg-[#183864] border border-blue-200/30 rounded p-4">
@@ -3237,10 +3241,7 @@
                 </div>
                 <div class="border border-blue-200/35 rounded p-4 bg-[#15335e] space-y-3">${connectedCards}</div>
                 <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200/80">
-                    True background scanning like Sylcom requires a native desktop agent with direct OS Bluetooth access. This cloud browser app can show devices only after the browser grants them.
-                </div>
-                <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200/80">
-                    Battery is shown when the device exposes the standard battery service. Signal strength and live measurement streaming depend on what the browser and the instrument firmware expose.
+                    Battery is shown when the tool exposes the standard battery service. Signal and live reading fields are reserved for supported Sylvac data streams.
                 </div>
             `;
         }
@@ -3514,12 +3515,17 @@
                     acceptAllDevices: true,
                     optionalServices: ['battery_service', 'device_information']
                 });
+                const resolvedName = String(device.name || 'Bluetooth Device').trim() || 'Bluetooth Device';
+                if (!isSylvacBluetoothDeviceName(resolvedName)) {
+                    bluetoothConsoleState.lastError = `Ignored non-Sylvac device: ${resolvedName}`;
+                    return;
+                }
                 const batteryLevel = await readBluetoothBatteryLevel(device);
                 upsertBluetoothConsoleDevice({
                     id: String(device.id || '').trim(),
-                    name: String(device.name || 'Bluetooth Device').trim() || 'Bluetooth Device',
-                    type: inferBluetoothDeviceType(device.name || ''),
-                    brand: inferBluetoothDeviceBrand(device.name || ''),
+                    name: resolvedName,
+                    type: inferBluetoothDeviceType(resolvedName),
+                    brand: 'Sylvac',
                     transport: 'BT4.0 Pair',
                     batteryLevel,
                     signalStrength: 'Browser N/A',
@@ -3548,12 +3554,16 @@
             try {
                 const devices = await navigator.bluetooth.getDevices();
                 await Promise.all(devices.map(async (device) => {
+                    const resolvedName = String(device.name || 'Bluetooth Device').trim() || 'Bluetooth Device';
+                    if (!isSylvacBluetoothDeviceName(resolvedName)) {
+                        return;
+                    }
                     const batteryLevel = await readBluetoothBatteryLevel(device);
                     upsertBluetoothConsoleDevice({
                         id: String(device.id || '').trim(),
-                        name: String(device.name || 'Bluetooth Device').trim() || 'Bluetooth Device',
-                        type: inferBluetoothDeviceType(device.name || ''),
-                        brand: inferBluetoothDeviceBrand(device.name || ''),
+                        name: resolvedName,
+                        type: inferBluetoothDeviceType(resolvedName),
+                        brand: 'Sylvac',
                         transport: 'BT4.0 Pair',
                         batteryLevel,
                         signalStrength: 'Browser N/A',
@@ -3562,6 +3572,9 @@
                         deviceRef: device
                     });
                 }));
+                if (!bluetoothConsoleState.discovered.length) {
+                    bluetoothConsoleState.lastError = 'No granted Sylvac Bluetooth tools were found.';
+                }
                 renderBluetoothConsolePanel();
             } catch (error) {
                 console.error('Loading granted Bluetooth devices failed', error);
