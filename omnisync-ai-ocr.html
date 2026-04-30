@@ -3074,8 +3074,10 @@
             `).join('');
         }
 
-        function inferBluetoothDeviceType(name = '') {
-            const normalized = String(name || '').trim().toLowerCase();
+        function inferBluetoothDeviceType(name = '', modelName = '') {
+            const normalized = `${name || ''} ${modelName || ''}`.trim().toLowerCase();
+            if (normalized.includes('s_mike') || normalized.includes('s mike')) return 'Micrometer';
+            if (normalized.includes('mark vi')) return 'Indicator';
             if (normalized.includes('cal') || normalized.includes('caliper')) return 'Caliper';
             if (normalized.includes('mic') || normalized.includes('micro')) return 'Micrometer';
             if (normalized.includes('ind') || normalized.includes('indicator')) return 'Indicator';
@@ -3084,8 +3086,8 @@
             return 'Instrument';
         }
 
-        function inferBluetoothDeviceBrand(name = '') {
-            const normalized = String(name || '').trim().toLowerCase();
+        function inferBluetoothDeviceBrand(name = '', manufacturerName = '', modelName = '') {
+            const normalized = `${name || ''} ${manufacturerName || ''} ${modelName || ''}`.trim().toLowerCase();
             if (normalized.includes('sylvac') || normalized.includes('sylcom')) return 'Sylvac';
             if (normalized.includes('fowler')) return 'Fowler';
             if (normalized.includes('trimos')) return 'Trimos';
@@ -3095,8 +3097,8 @@
             return document.getElementById('bluetooth-default-brand')?.value || instrumentBrandOptions[0];
         }
 
-        function isSylvacBluetoothDeviceName(name = '') {
-            return inferBluetoothDeviceBrand(name) === 'Sylvac';
+        function isSylvacBluetoothDeviceName(name = '', manufacturerName = '', modelName = '') {
+            return inferBluetoothDeviceBrand(name, manufacturerName, modelName) === 'Sylvac';
         }
 
         function upsertBluetoothConsoleDevice(deviceState) {
@@ -3122,6 +3124,30 @@
             }
         }
 
+        async function readBluetoothDeviceDetails(deviceRef) {
+            const details = { manufacturerName: '', modelName: '', serialNumber: '' };
+            if (!deviceRef?.gatt) return details;
+            try {
+                const server = deviceRef.gatt.connected ? deviceRef.gatt : await deviceRef.gatt.connect();
+                const service = await server.getPrimaryService('device_information');
+                const readText = async (characteristicName) => {
+                    try {
+                        const characteristic = await service.getCharacteristic(characteristicName);
+                        const value = await characteristic.readValue();
+                        return new TextDecoder().decode(value.buffer).replace(/\0/g, '').trim();
+                    } catch (error) {
+                        return '';
+                    }
+                };
+                details.manufacturerName = await readText('manufacturer_name_string');
+                details.modelName = await readText('model_number_string');
+                details.serialNumber = await readText('serial_number_string');
+            } catch (error) {
+                return details;
+            }
+            return details;
+        }
+
         function getConnectedConsoleDeviceList() {
             const linkedCatalog = [
                 ...getToolCatalog().map(item => ({ ...item, category: 'tools' })),
@@ -3136,8 +3162,10 @@
                     id: item.bluetoothId,
                     name: item.bluetoothName || item.name,
                     instrumentName: item.name,
-                    type: item.type || inferBluetoothDeviceType(item.bluetoothName || item.name),
-                    brand: item.brand || inferBluetoothDeviceBrand(item.bluetoothName || item.name),
+                    type: item.type || inferBluetoothDeviceType(item.bluetoothName || item.name, item.bluetoothModel || ''),
+                    brand: item.brand || inferBluetoothDeviceBrand(item.bluetoothName || item.name, item.bluetoothManufacturer || '', item.bluetoothModel || ''),
+                    modelName: item.bluetoothModel || '',
+                    manufacturerName: item.bluetoothManufacturer || '',
                     transport: item.bluetoothTransport || getInstrumentLinkTransport(item) || 'BT4.0 Pair',
                     batteryLevel: consoleState?.batteryLevel ?? item.batteryLevel ?? '',
                     signalStrength: consoleState?.signalStrength || item.signalStrength || 'Unavailable',
@@ -3153,8 +3181,10 @@
                         id: item.id,
                         name: item.name,
                         instrumentName: item.linkedInstrumentName || 'Unassigned Instrument',
-                        type: item.type || inferBluetoothDeviceType(item.name),
-                        brand: item.brand || inferBluetoothDeviceBrand(item.name),
+                        type: item.type || inferBluetoothDeviceType(item.name, item.modelName || ''),
+                        brand: item.brand || inferBluetoothDeviceBrand(item.name, item.manufacturerName || '', item.modelName || ''),
+                        modelName: item.modelName || '',
+                        manufacturerName: item.manufacturerName || '',
                         transport: item.transport || 'BT4.0 Pair',
                         batteryLevel: item.batteryLevel ?? '',
                         signalStrength: item.signalStrength || 'Unavailable',
@@ -3180,7 +3210,7 @@
                     <div class="flex items-start justify-between gap-2">
                         <div>
                             <div class="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-100">${escapeHtml(item.type || 'Instrument')}</div>
-                            <div class="text-sm font-black text-white mt-1">${escapeHtml(item.brand || 'Sylvac')}</div>
+                            <div class="text-sm font-black text-white mt-1">${escapeHtml(item.modelName || item.brand || 'Sylvac')}</div>
                         </div>
                         <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200">${escapeHtml(item.transport || 'BT4.0')}</div>
                     </div>
@@ -3202,7 +3232,7 @@
                         <div>
                             <div class="text-[9px] font-bold uppercase tracking-[0.2em] text-blue-100">${escapeHtml(item.brand || 'Instrument')} • ${escapeHtml(item.transport || 'BT4.0 Pair')}</div>
                             <div class="text-lg font-black italic text-white mt-1">${escapeHtml(item.instrumentName || item.name)}</div>
-                            <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">${escapeHtml(item.type || 'Instrument')} • ${escapeHtml(item.name || '')}</div>
+                            <div class="text-[10px] font-bold uppercase tracking-widest text-blue-200 mt-1">${escapeHtml(item.type || 'Instrument')} • ${escapeHtml(item.modelName || item.name || '')}</div>
                         </div>
                         <div class="flex items-center gap-2 flex-wrap justify-end">
                             <span class="text-[10px] px-3 py-1 rounded-full font-bold uppercase tracking-widest ${item.connected ? 'bg-emerald-500/20 text-emerald-100 border border-emerald-300/30' : 'bg-slate-700/70 text-slate-100 border border-slate-500/40'}">${item.connected ? 'Connected' : 'Linked'}</span>
@@ -3516,7 +3546,8 @@
                     optionalServices: ['battery_service', 'device_information']
                 });
                 const resolvedName = String(device.name || 'Bluetooth Device').trim() || 'Bluetooth Device';
-                if (!isSylvacBluetoothDeviceName(resolvedName)) {
+                const details = await readBluetoothDeviceDetails(device);
+                if (!isSylvacBluetoothDeviceName(resolvedName, details.manufacturerName, details.modelName)) {
                     bluetoothConsoleState.lastError = `Ignored non-Sylvac device: ${resolvedName}`;
                     return;
                 }
@@ -3524,8 +3555,10 @@
                 upsertBluetoothConsoleDevice({
                     id: String(device.id || '').trim(),
                     name: resolvedName,
-                    type: inferBluetoothDeviceType(resolvedName),
-                    brand: 'Sylvac',
+                    type: inferBluetoothDeviceType(resolvedName, details.modelName),
+                    brand: inferBluetoothDeviceBrand(resolvedName, details.manufacturerName, details.modelName),
+                    manufacturerName: details.manufacturerName,
+                    modelName: details.modelName,
                     transport: 'BT4.0 Pair',
                     batteryLevel,
                     signalStrength: 'Browser N/A',
@@ -3555,15 +3588,18 @@
                 const devices = await navigator.bluetooth.getDevices();
                 await Promise.all(devices.map(async (device) => {
                     const resolvedName = String(device.name || 'Bluetooth Device').trim() || 'Bluetooth Device';
-                    if (!isSylvacBluetoothDeviceName(resolvedName)) {
+                    const details = await readBluetoothDeviceDetails(device);
+                    if (!isSylvacBluetoothDeviceName(resolvedName, details.manufacturerName, details.modelName)) {
                         return;
                     }
                     const batteryLevel = await readBluetoothBatteryLevel(device);
                     upsertBluetoothConsoleDevice({
                         id: String(device.id || '').trim(),
                         name: resolvedName,
-                        type: inferBluetoothDeviceType(resolvedName),
-                        brand: 'Sylvac',
+                        type: inferBluetoothDeviceType(resolvedName, details.modelName),
+                        brand: inferBluetoothDeviceBrand(resolvedName, details.manufacturerName, details.modelName),
+                        manufacturerName: details.manufacturerName,
+                        modelName: details.modelName,
                         transport: 'BT4.0 Pair',
                         batteryLevel,
                         signalStrength: 'Browser N/A',
@@ -3620,6 +3656,8 @@
                 bluetoothId: deviceEntry.id,
                 bluetoothName: deviceEntry.name,
                 bluetoothTransport: 'BT4.0 Pair',
+                bluetoothManufacturer: deviceEntry.manufacturerName || '',
+                bluetoothModel: deviceEntry.modelName || '',
                 batteryLevel: batteryLevel ?? '',
                 signalStrength: 'Browser N/A',
                 liveReading: 'Waiting for vendor stream',
