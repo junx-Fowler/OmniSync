@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 const app = express();
 const PORT = Number(process.env.OMNISYNC_AGENT_PORT || 8467);
 const HOST = process.env.OMNISYNC_AGENT_HOST || '127.0.0.1';
-const DEFAULT_BLUEGIGA_PORT = process.env.OMNISYNC_BLUEGIGA_PORT || 'COM3';
+const DEFAULT_BLUEGIGA_PORT = process.env.OMNISYNC_BLUEGIGA_PORT || 'AUTO';
 const DEFAULT_SCAN_MS = Number(process.env.OMNISYNC_BLUEGIGA_SCAN_MS || 2500);
 const SCAN_SCRIPT = path.join(__dirname, 'scripts', 'scan-bluegiga.ps1');
 

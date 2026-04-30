@@ -50,6 +50,42 @@
         #pdf-container.select-mode { cursor: crosshair; }
         #pdf-container.pan-mode { cursor: grab; }
         #pdf-container.pan-mode.panning { cursor: grabbing; }
+        #workspace-shell {
+            width: 100%;
+            max-width: 2400px;
+            margin: 0 auto;
+        }
+        #blueprint-wrapper {
+            flex: 1 1 auto;
+            width: auto !important;
+            min-width: 0;
+        }
+        #right-panel {
+            flex: 0 0 clamp(420px, 31vw, 760px);
+            width: clamp(420px, 31vw, 760px) !important;
+            min-width: 380px;
+            max-width: 760px;
+        }
+        @media (min-width: 1700px) {
+            #workspace-shell {
+                padding-left: 18px;
+                padding-right: 18px;
+            }
+            #blueprint-wrapper,
+            #right-panel {
+                border-radius: 14px 14px 0 0;
+            }
+        }
+        @media (max-width: 1400px) {
+            #right-panel {
+                flex-basis: min(44vw, 640px);
+                width: min(44vw, 640px) !important;
+                min-width: 340px;
+            }
+            #pdf-toolbar {
+                max-width: 100% !important;
+            }
+        }
         #selection-box {
             border: 2px dashed #60a5fa;
             background: rgba(96, 165, 250, 0.18);
@@ -250,7 +286,7 @@
         </div>
     </header>
 
-    <div class="flex flex-1 overflow-hidden relative">
+    <div id="workspace-shell" class="flex flex-1 overflow-hidden relative">
         <div class="w-3/5 bg-slate-300 relative border-r border-slate-400 overflow-auto flex flex-col items-center justify-start p-4" id="blueprint-wrapper">
             
             <div id="plan-library-view" class="absolute inset-0 bg-slate-100 z-20 p-8 flex flex-col overflow-y-auto">
@@ -418,13 +454,14 @@
                                 <button onclick="loadGrantedBluetoothDevices()" class="bg-white/10 border border-blue-300/40 text-blue-50 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/15 transition-colors">Reset List</button>
                             </div>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
                             <select id="bluetooth-target-category" class="border border-blue-300/30 rounded px-3 py-2 text-sm font-bold text-blue-50 outline-none focus:border-blue-200 bg-[#163561]">
                                 <option value="tools">Link as Tool</option>
                                 <option value="gages">Link as Gage</option>
                             </select>
                             <select id="bluetooth-default-brand" class="border border-blue-300/30 rounded px-3 py-2 text-sm font-bold text-blue-50 outline-none focus:border-blue-200 bg-[#163561]"></select>
                             <select id="bluetooth-default-type" class="border border-blue-300/30 rounded px-3 py-2 text-sm font-bold text-blue-50 outline-none focus:border-blue-200 bg-[#163561]"></select>
+                            <input type="text" id="bluetooth-bridge-port" value="COM3" onchange="updateBluetoothBridgePort(this.value)" class="border border-blue-300/30 rounded px-3 py-2 text-sm font-bold text-blue-50 outline-none focus:border-blue-200 bg-[#163561]" placeholder="COM3 or AUTO">
                         </div>
                         <div id="bluetooth-console-panel" class="mt-5 space-y-4"></div>
                     </div>
@@ -3973,6 +4010,16 @@
             settingsOpen = false;
             reportBuilderOpen = false;
             renderInstrumentsPage();
+            try {
+                const savedBridgePort = localStorage.getItem('omnisync_bluetooth_bridge_port');
+                if (savedBridgePort) {
+                    bluetoothConsoleState.bridgePort = savedBridgePort;
+                }
+            } catch (error) {}
+            const bridgePortInput = document.getElementById('bluetooth-bridge-port');
+            if (bridgePortInput) {
+                bridgePortInput.value = bluetoothConsoleState.bridgePort || 'AUTO';
+            }
             await loadGrantedBluetoothDevices().catch(error => {
                 console.warn('Could not auto-load Bluetooth devices.', error);
             });
@@ -4216,7 +4263,8 @@
         }
 
         async function scanBluegigaLocalBridge() {
-            const response = await fetch(`http://127.0.0.1:8467/api/bluegiga/scan?port=${encodeURIComponent(bluetoothConsoleState.bridgePort)}&durationMs=2200`, {
+            const portParam = bluetoothConsoleState.bridgePort || 'AUTO';
+            const response = await fetch(`http://127.0.0.1:8467/api/bluegiga/scan?port=${encodeURIComponent(portParam)}&durationMs=2200`, {
                 cache: 'no-store'
             });
             if (!response.ok) {
@@ -4231,6 +4279,14 @@
                 if (!instrumentsOpen || bluetoothConsoleState.scanning) return;
                 discoverBluetoothConsoleDevice().catch(error => console.warn('Bluetooth auto scan failed', error));
             }, 4000);
+        }
+
+        function updateBluetoothBridgePort(value = '') {
+            const nextValue = String(value || '').trim().toUpperCase() || 'AUTO';
+            bluetoothConsoleState.bridgePort = nextValue;
+            try {
+                localStorage.setItem('omnisync_bluetooth_bridge_port', nextValue);
+            } catch (error) {}
         }
 
         function stopBluetoothConsoleAutoScan() {
@@ -4360,7 +4416,7 @@
             const scanningLabel = bluetoothConsoleState.scanning ? 'Scanning...' : 'Ready';
             const bridgeLabel = bluetoothConsoleState.bridgeMode === 'web-serial'
                 ? 'Web Serial'
-                : (bluetoothConsoleState.bridgeReachable ? `Bluegiga ${bluetoothConsoleState.bridgePort}` : 'Browser Fallback');
+                : (bluetoothConsoleState.bridgeReachable ? `Bluegiga ${bluetoothConsoleState.bridgePort || 'AUTO'}` : 'Browser Fallback');
 
             const discoveredCards = discovered.length ? discovered.map(item => `
                 <div title="Instrument: ${escapeHtml(item.name)}&#10;Mac address: ${escapeHtml(item.macAddress)}" class="bg-[#8aa4d5]/25 border border-blue-200/35 rounded p-3 w-[168px] min-h-[102px] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
@@ -4423,6 +4479,8 @@
             bluetoothConsoleState.scanning = true;
             bluetoothConsoleState.lastError = '';
             renderBluetoothConsolePanel();
+            let serialScanError = '';
+            let bridgeScanError = '';
             try {
                 const previousById = new Map(bluetoothConsoleState.discovered.map(item => [item.id, item]));
                 try {
@@ -4458,6 +4516,7 @@
                     stopBluetoothConsolePolling();
                     return;
                 } catch (serialError) {
+                    serialScanError = serialError?.message || 'Web Serial scan unavailable.';
                     bluetoothConsoleState.bridgeMode = 'browser';
                 }
 
@@ -4494,13 +4553,14 @@
                     stopBluetoothConsolePolling();
                     return;
                 } catch (bridgeError) {
+                    bridgeScanError = bridgeError?.message || 'Local Bluegiga bridge is offline.';
                     bluetoothConsoleState.bridgeReachable = false;
                     bluetoothConsoleState.bridgeMode = 'browser';
                 }
 
                 if (!navigator.bluetooth?.getDevices) {
                     bluetoothConsoleState.discovered = [];
-                    bluetoothConsoleState.lastError = 'Local Bluegiga bridge is offline and this browser cannot enumerate granted Bluetooth devices.';
+                    bluetoothConsoleState.lastError = [serialScanError, bridgeScanError || 'Local Bluegiga bridge is offline.'].filter(Boolean).join(' ');
                     return;
                 }
                 const devices = await navigator.bluetooth.getDevices();
