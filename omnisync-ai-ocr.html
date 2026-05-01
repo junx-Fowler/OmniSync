@@ -4215,14 +4215,18 @@
             const info = port.getInfo ? port.getInfo() : {};
             let openedHere = false;
             if (!port.readable || !port.writable) {
-                await port.open({
-                    baudRate: 115200,
-                    dataBits: 8,
-                    stopBits: 1,
-                    parity: 'none',
-                    flowControl: 'none'
-                });
-                openedHere = true;
+                try {
+                    await port.open({
+                        baudRate: 115200,
+                        dataBits: 8,
+                        stopBits: 1,
+                        parity: 'none',
+                        flowControl: 'none'
+                    });
+                    openedHere = true;
+                } catch (error) {
+                    throw new Error(`Web Serial could not open the Bluegiga port. ${error?.message || ''}`.trim());
+                }
             }
 
             const reader = port.readable.getReader();
@@ -4584,7 +4588,7 @@
                 bluetoothConsoleState.discovered = matches;
                 bluetoothConsoleState.lastScanAt = Date.now();
                 if (!matches.length) {
-                    bluetoothConsoleState.lastError = 'No granted browser Bluetooth devices matched the preset Sylvac tools.';
+                    bluetoothConsoleState.lastError = [serialScanError, bridgeScanError, 'No granted browser Bluetooth devices matched the preset Sylvac tools.'].filter(Boolean).join(' ');
                 }
                 if (matches.some(item => item.connected)) {
                     startBluetoothConsolePolling();
@@ -5572,6 +5576,13 @@
             return Math.sqrt(variance);
         }
 
+        function parseMeasurementActual(actual) {
+            const text = String(actual ?? '').trim();
+            if (!text) return null;
+            const parsed = Number(text);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
         function renderTrendChart() {
             const fullHistory = getSupervisorHistory();
             const hist = mode === 'SUPERVISOR' ? filterSupervisorHistory(fullHistory) : fullHistory;
@@ -5581,7 +5592,10 @@
             const chartTypeLabel = document.getElementById('chart-type-label');
             const n = parseFloat(spec.nominal), ucl = n + parseFloat(spec.upper), lcl = n - parseFloat(spec.lower);
             const recentHist = hist.slice(-20);
-            const data = recentHist.map(p => { const m = p.measurements.find(x => x.id === activeTrendId); return m ? parseFloat(m.actual) : null; });
+            const data = recentHist.map(p => {
+                const m = p.measurements.find(x => x.id === activeTrendId);
+                return m ? parseMeasurementActual(m.actual) : null;
+            });
             const cleanData = data.filter(Number.isFinite);
             if(trendChart) trendChart.destroy();
             const ctx = document.getElementById('trend-chart-canvas').getContext('2d');
@@ -6974,6 +6988,12 @@
         let selectedChartType = 'trend';
         let followLatest = ${initialFollowLatest};
         const chartTypes = ['trend', 'histogram', 'imr', 'capability'];
+        function parseMeasurementActual(actual) {
+            const text = String(actual ?? '').trim();
+            if (!text) return null;
+            const parsed = Number(text);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
 
         function buildChart(state) {
             const canvas = document.getElementById('floating-monitoring-canvas');
@@ -6987,7 +7007,7 @@
             const ucl = nominal + Number(state.upper || 0);
             const lcl = nominal - Number(state.lower || 0);
             const labels = state.history.map(item => '#' + String(item.id).slice(-4));
-            const values = state.history.map(item => item.measurement ? Number(item.measurement.actual) : null);
+            const values = state.history.map(item => item.measurement ? parseMeasurementActual(item.measurement.actual) : null);
             const cleanData = values.filter(Number.isFinite);
             const baseOptions = { responsive: true, maintainAspectRatio: false, animation: false, resizeDelay: 0 };
 
